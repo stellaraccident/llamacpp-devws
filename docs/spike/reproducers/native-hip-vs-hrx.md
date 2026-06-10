@@ -1,6 +1,6 @@
 # Native HIP vs HRX Reproducer
 
-These commands reproduce the native HIP comparison build used for `docs/reports/native-hip-vs-hrx.md`.
+These commands reproduce the native HIP comparison build used for `docs/spike/reports/native-hip-vs-hrx.md`.
 
 ```bash
 ROOT=/srv/vm-shared/projects/pyre-workspace

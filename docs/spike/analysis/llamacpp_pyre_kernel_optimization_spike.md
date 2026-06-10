@@ -1933,7 +1933,7 @@ GGML_PYRE_TRACE_PROVIDERS=1 \
 
 - Scope: widened the hf9f.24 ATT pass into a broader structural map, tracked
   by `pyre-workspace-hf9f.26`. The main strategy note is
-  `docs/analysis/llamacpp_pyre_broader_kernel_strategy.md`; artifacts live in
+  `docs/spike/analysis/llamacpp_pyre_broader_kernel_strategy.md`; artifacts live in
   `build/pyre-epic2-results/hf9f-26/`.
 - Decode/prompt split: collected separate provider traces and rocprof tables.
   Decode n64 is still led by Q6 wg128 (82.065 ms), Q4 packed MUL (70.534 ms),

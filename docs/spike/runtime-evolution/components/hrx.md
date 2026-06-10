@@ -78,7 +78,7 @@ for immediate-mode compatibility.
   TSAN, and UBSAN.
 - `Measured`: existing llama.cpp HRX reports show HRX can reach or beat native
   HIP stream-mode submission in selected decode/prefill tests, while naive HIP
-  graph mode was slower. See `docs/reports/native-hip-vs-hrx.md`.
+  graph mode was slower. See `docs/spike/reports/native-hip-vs-hrx.md`.
 - `Measured`: the MI300X serving report linked from the root README reports
   broad HAL wins over direct HIP stream/event orchestration on
   orchestration-heavy serving-shaped schedules. Treat this as a strong working

@@ -32,8 +32,8 @@ This workspace is for shared development of llama.cpp with HRX support.
 ## Agent Workflow
 
 - Start by reading this file and `README.md`.
-- For kernel optimization work, read `docs/kernel-skill/SKILL.md` and then the
-  specific reference it points to.
+- For kernel optimization work, read `docs/spike/kernel-skill/SKILL.md` and
+  then the specific reference it points to.
 - Use `tools/status.py` to inspect source checkout state.
 - Use `tools/sandbox.py` or `tools/launch_agent.py` when running long-lived
   agent sessions that need isolated filesystem access with GPU passthrough.
@@ -42,7 +42,7 @@ This workspace is for shared development of llama.cpp with HRX support.
 
 ## Documentation Seed
 
-The initial docs are a curated carryover from the Pyre workspace: HRX/llama.cpp
-handoff notes, integration logs, profiling and runtime overhead notes, Vulkan
-to HIP kernel strategy, the preserved Pyre kernel optimization spike log, and
-the HRX kernel optimization skill.
+The `docs/spike/` tree is a curated carryover from the Pyre workspace:
+HRX/llama.cpp handoff notes, integration logs, profiling and runtime overhead
+notes, Vulkan to HIP kernel strategy, the preserved Pyre kernel optimization
+spike log, and the HRX kernel optimization skill.

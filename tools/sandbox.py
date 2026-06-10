@@ -26,11 +26,35 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import BinaryIO
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKSPACE = Path(os.environ.get("LLAMACPP_DEVWS", str(SCRIPT_DIR.parent)))
 HOME_DIR = Path.home()
 SYSTEM_BIN_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def add_symlink_realpath_mount(args: list[str], link_name: str, *, readonly: bool) -> None:
+    """Bind the resolved target of a workspace symlink at its real host path."""
+    link_path = WORKSPACE / link_name
+    if not link_path.is_symlink():
+        return
+    try:
+        target = link_path.resolve(strict=True)
+    except FileNotFoundError:
+        return
+
+    flag = "--ro-bind" if readonly else "--bind"
+    args.extend([flag, str(target), str(target)])
+
+
+def add_readonly_file_data_mount(
+    args: list[str], path: Path, file_handles: list[BinaryIO]
+) -> None:
+    """Copy a host file into the sandbox as a read-only bind-mounted file."""
+    handle = path.open("rb")
+    file_handles.append(handle)
+    args.extend(["--ro-bind-data", str(handle.fileno()), str(path)])
 
 
 def find_nvm_node_bin() -> str | None:
@@ -43,7 +67,7 @@ def find_nvm_node_bin() -> str | None:
     return str(versions[-1] / "bin")
 
 
-def build_bwrap_args() -> list[str]:
+def build_bwrap_args(file_handles: list[BinaryIO] | None = None) -> list[str]:
     allow_net = os.environ.get("LLAMACPP_DEVWS_NET", "1")
     gpu = os.environ.get("LLAMACPP_DEVWS_GPU", "1")
 
@@ -86,8 +110,8 @@ def build_bwrap_args() -> list[str]:
         if p.is_dir():
             args.extend(["--bind", str(p), str(p)])
     claude_json = HOME_DIR / ".claude.json"
-    if claude_json.is_file():
-        args.extend(["--bind", str(claude_json), str(claude_json)])
+    if claude_json.is_file() and file_handles is not None:
+        add_readonly_file_data_mount(args, claude_json, file_handles)
 
     # Local binaries (claude CLI, pip tools).
     local_dir = HOME_DIR / ".local"
@@ -103,8 +127,8 @@ def build_bwrap_args() -> list[str]:
 
     # Git config (read-only).
     gitconfig = HOME_DIR / ".gitconfig"
-    if gitconfig.is_file():
-        args.extend(["--ro-bind", str(gitconfig), str(gitconfig)])
+    if gitconfig.is_file() and file_handles is not None:
+        add_readonly_file_data_mount(args, gitconfig, file_handles)
 
     # Block credentials.
     for cred_dir in [".ssh", ".gnupg", ".aws"]:
@@ -113,6 +137,12 @@ def build_bwrap_args() -> list[str]:
     # The workspace: full read-write. This must come after the HOME tmpfs
     # because the workspace normally lives under /home/stella.
     args.extend(["--bind", str(WORKSPACE), str(WORKSPACE)])
+
+    # Workspace symlinks that escape the workspace need their resolved targets
+    # mounted too, otherwise following the symlink inside the sandbox lands on
+    # an unmounted or read-only host path.
+    add_symlink_realpath_mount(args, "shared", readonly=False)
+    add_symlink_realpath_mount(args, "rocm", readonly=True)
 
     # Working directory.
     args.extend(["--chdir", str(WORKSPACE)])
@@ -168,12 +198,6 @@ def build_bwrap_args() -> list[str]:
         if Path("/dev/dri").is_dir():
             args.extend(["--dev-bind", "/dev/dri", "/dev/dri"])
         args.extend(["--ro-bind", "/sys", "/sys"])
-        rocm_link = WORKSPACE / "rocm"
-        if rocm_link.exists():
-            rocm_target = rocm_link.resolve()
-            if rocm_target.is_dir() and not str(rocm_target).startswith(str(WORKSPACE)):
-                args.extend(["--dir", str(rocm_target.parent)])
-                args.extend(["--ro-bind", str(rocm_target), str(rocm_target)])
 
     # Network.
     if allow_net == "0":
@@ -307,7 +331,8 @@ def main() -> None:
     gh_proc, gh_socket = start_gh_proxy()
     podman_proc, podman_socket, podman_owns_socket_dir = start_podman_proxy()
 
-    bwrap_args = build_bwrap_args()
+    file_handles: list[BinaryIO] = []
+    bwrap_args = build_bwrap_args(file_handles)
 
     # If gh proxy is running, pass socket into sandbox and bind the tools/gh wrapper.
     if gh_socket is not None:
@@ -333,9 +358,12 @@ def main() -> None:
     full_cmd = [bwrap] + bwrap_args + ["--"] + cmd
 
     try:
-        result = subprocess.run(full_cmd)
+        pass_fds = [handle.fileno() for handle in file_handles]
+        result = subprocess.run(full_cmd, pass_fds=pass_fds)
         sys.exit(result.returncode)
     finally:
+        for handle in file_handles:
+            handle.close()
         # Clean up gh proxy.
         if gh_proc is not None:
             gh_proc.terminate()

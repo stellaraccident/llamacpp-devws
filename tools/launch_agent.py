@@ -33,8 +33,8 @@ ROLE_PROMPTS: dict[str, str] = {
     ),
     "kernel": (
         "You are focused on HRX pure-HIP kernel optimization for llama.cpp. "
-        "Read AGENTS.md, README.md, and docs/kernel-skill/SKILL.md first, then "
-        "load only the referenced kernel skill material needed for the task. "
+        "Read AGENTS.md, README.md, and docs/spike/kernel-skill/SKILL.md "
+        "first, then load only the referenced kernel skill material needed for the task. "
         "Use profiling and correctness gates before promoting kernel changes."
     ),
     "build": (
@@ -53,7 +53,7 @@ ROLE_PROMPTS: dict[str, str] = {
 ROLE_INITIAL: dict[str, str] = {
     "generalist": "Read AGENTS.md and README.md, then ask what we are looking at.",
     "coder": "Read AGENTS.md and README.md, then inspect source checkout status.",
-    "kernel": "Read AGENTS.md, README.md, and docs/kernel-skill/SKILL.md.",
+    "kernel": "Read AGENTS.md, README.md, and docs/spike/kernel-skill/SKILL.md.",
     "build": "Read AGENTS.md and README.md, then inspect the build environment.",
     "reviewer": "Read AGENTS.md and README.md, then ask which change to review.",
 }

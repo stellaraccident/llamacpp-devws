@@ -10,11 +10,11 @@ metadata:
 This skill is an entrypoint. Load only the reference file needed for the task:
 
 - General process and optimization catalog:
-  `docs/kernel-skill/kernel_optimization_guide.md`
+  `docs/spike/kernel-skill/kernel_optimization_guide.md`
 - AMD RDNA3 / wavefront / ISA gotchas:
-  `docs/kernel-skill/amd_rdna3_wavefront_isa_gotchas.md`
+  `docs/spike/kernel-skill/amd_rdna3_wavefront_isa_gotchas.md`
 - llama.cpp-specific provider, profiling, and correctness workflow:
-  `docs/kernel-skill/llamacpp_optimization_skill.md`
+  `docs/spike/kernel-skill/llamacpp_optimization_skill.md`
 
 ## Non-Negotiables
 

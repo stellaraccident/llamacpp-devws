@@ -16,8 +16,8 @@ IREE profile pipeline once those records are available.
 
 Read this after:
 
-- `docs/analysis/llamacpp_pyre_runtime_overhead_analysis.md`
-- `docs/analysis/llamacpp_hrx_runtime_overhead_analysis_2026-04-15.md`
+- `docs/spike/analysis/llamacpp_pyre_runtime_overhead_analysis.md`
+- `docs/spike/analysis/llamacpp_hrx_runtime_overhead_analysis_2026-04-15.md`
 
 The older Pyre note diagnosed the first structural problem: the reference HSA path waited on the host around every command. The 2026-04-15 HRX rerun showed better kernels but still a large endpoint/runtime gap. The current toolchain lets us inspect that gap in runtime terms: Tracy gives the process/system timeline, and IREE profile files give command-buffer/export/dispatch detail.
 

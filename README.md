@@ -13,27 +13,45 @@ sources/
   hrx-system/   HRX runtime checkout, branch main
 build/          local build trees and install trees
 cache/          local caches and profiling scratch
-docs/           curated HRX and llama.cpp notes
+docs/           workspace documentation
+  spike/        historic notes from the initial HRX llama.cpp bringup
 skills/         workspace-specific Codex skills
 tools/          sandbox, agent launcher, status, and gh proxy helpers
 rocm            symlink to a local ROCm nightly install
 ```
 
-The expected ROCm install is:
+## ROCm Nightly
 
-```text
-/home/stella/rocm/rocm-7.14.0a20260610
+Install ROCm from the official nightly tarball page:
+`https://rocm.nightlies.amd.com/tarball/`.
+
+Pick a local install location outside this repository. For example:
+
+```bash
+export ROCM_INSTALL_ROOT="$HOME/opt/rocm"
+export ROCM_INSTALL="$ROCM_INSTALL_ROOT/rocm-7.14.0a20260610"
+mkdir -p "$ROCM_INSTALL"
 ```
 
-It was downloaded from the official ROCm nightly tarball page:
-`https://rocm.nightlies.amd.com/tarball/`.
+Download the Linux tarball that matches your GPU target, such as
+`therock-dist-linux-gfx1151-7.14.0a20260610.tar.gz` for `gfx1151`, then unpack
+it into the chosen install directory:
+
+```bash
+cd "$ROCM_INSTALL_ROOT"
+curl -LO "https://rocm.nightlies.amd.com/tarball/therock-dist-linux-<gfx-target>-7.14.0a20260610.tar.gz"
+tar -xzf "therock-dist-linux-<gfx-target>-7.14.0a20260610.tar.gz" -C "$ROCM_INSTALL"
+test -x "$ROCM_INSTALL/bin/amdclang++"
+```
+
+Use the directory containing `bin/amdclang++` as the ROCm path for bootstrap.
 
 ## Bootstrap
 
 From the workspace root:
 
 ```bash
-python skills/init-llamacpp-hrx-workspace/scripts/bootstrap_workspace.py
+python skills/init-llamacpp-hrx-workspace/scripts/bootstrap_workspace.py --rocm "$ROCM_INSTALL"
 ```
 
 The bootstrap creates required directories, creates or verifies the `rocm`

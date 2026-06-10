@@ -12,9 +12,9 @@ This document is written for future agents working specifically in
 
 Use it with:
 
-- `docs/kernel-skill/kernel_optimization_guide.md`
-- `docs/kernel-skill/amd_rdna3_wavefront_isa_gotchas.md`
-- historical analysis logs under `docs/analysis/` may predate the HRX rename;
+- `docs/spike/kernel-skill/kernel_optimization_guide.md`
+- `docs/spike/kernel-skill/amd_rdna3_wavefront_isa_gotchas.md`
+- historical analysis logs under `docs/spike/analysis/` may predate the HRX rename;
   treat them as background records, not command references.
 
 ## Index
@@ -939,6 +939,6 @@ GGML_VK_PERF_LOGGER
 Primary analysis logs:
 
 ```text
-docs/analysis/ historical llama.cpp optimization logs
-docs/analysis/llamacpp_vulkan_hip_optimization_hopper.md
+docs/spike/analysis/ historical llama.cpp optimization logs
+docs/spike/analysis/llamacpp_vulkan_hip_optimization_hopper.md
 ```
