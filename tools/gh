@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""gh — Sandbox-side thin client for the gh proxy.
+
+Connects to the gh-proxy Unix socket and forwards the command.
+Drop-in replacement for `gh` inside the sandbox.
+
+The socket path is set via GH_PROXY_SOCKET environment variable,
+which sandbox.py configures automatically.
+"""
+
+import json
+import os
+import socket
+import sys
+
+
+ALLOWED_PREFIXES = [
+    ("pr", "list"), ("pr", "view"), ("pr", "diff"), ("pr", "checks"), ("pr", "status"),
+    ("issue", "list"), ("issue", "view"), ("issue", "status"),
+    ("repo", "view"), ("repo", "list"),
+    ("search",),
+    ("api",),
+    ("release", "list"), ("release", "view"),
+    ("run", "list"), ("run", "view"), ("run", "download"),
+    ("auth", "status"),
+]
+
+API_MUTATING = {"-X PUT", "-X POST", "-X DELETE", "-X PATCH",
+                "--method PUT", "--method POST", "--method DELETE", "--method PATCH"}
+
+
+def is_allowed(args: list[str]) -> bool:
+    for prefix in ALLOWED_PREFIXES:
+        if len(args) >= len(prefix) and tuple(args[:len(prefix)]) == prefix:
+            if prefix == ("api",):
+                joined = " ".join(args)
+                return not any(m in joined for m in API_MUTATING)
+            return True
+    return False
+
+
+def run_via_proxy(sock_path: str, args: list[str]) -> int:
+    request = json.dumps({"args": args}) + "\n"
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(35)
+        sock.connect(sock_path)
+        sock.sendall(request.encode())
+        sock.shutdown(socket.SHUT_WR)
+        data = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        sock.close()
+        response = json.loads(data.decode().strip())
+        if response["stdout"]:
+            sys.stdout.write(response["stdout"])
+        if response["stderr"]:
+            sys.stderr.write(response["stderr"])
+        return response["returncode"]
+    except (ConnectionRefusedError, FileNotFoundError, socket.timeout) as e:
+        print(f"gh: proxy error: {e}", file=sys.stderr)
+        return 1
+
+
+def run_direct(args: list[str]) -> int:
+    """Run gh directly with allowlist enforcement (non-sandbox mode)."""
+    import shutil
+    import subprocess
+
+    real_gh = shutil.which("gh", path="/usr/local/bin:/usr/bin:/bin")
+    if not real_gh:
+        print("gh: not found", file=sys.stderr)
+        return 1
+
+    result = subprocess.run([real_gh] + args)
+    return result.returncode
+
+
+def main() -> int:
+    args = sys.argv[1:]
+
+    if not is_allowed(args):
+        cmd_preview = " ".join(args[:3])
+        print(
+            f"gh: blocked — 'gh {cmd_preview}' is not in the read-only allowlist\n"
+            f"Allowed: pr list/view/diff, issue list/view, repo view, search, "
+            f"api (GET only), run list/view",
+            file=sys.stderr,
+        )
+        return 1
+
+    sock_path = os.environ.get("GH_PROXY_SOCKET")
+    if sock_path:
+        return run_via_proxy(sock_path, args)
+    else:
+        return run_direct(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

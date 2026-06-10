@@ -1,0 +1,4 @@
+interface:
+  display_name: "Init llama.cpp HRX Workspace"
+  short_description: "Bootstrap llama.cpp HRX source workspaces"
+  default_prompt: "Use $init-llamacpp-hrx-workspace to bootstrap or repair a llama.cpp HRX development workspace."

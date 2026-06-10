@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""podman wrapper for sandboxed sessions.
+
+When sandbox.py exposes a host podman socket, force podman remote mode so
+container work happens on the host instead of inside bubblewrap's nested user
+namespace.
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+
+
+def main() -> int:
+    real_podman = shutil.which("podman", path="/usr/local/bin:/usr/bin:/bin")
+    if real_podman is None:
+        print("podman: not found", file=sys.stderr)
+        return 1
+
+    args = sys.argv[1:]
+    socket_path = os.environ.get("PODMAN_PROXY_SOCKET")
+    if socket_path and "--remote" not in args:
+        args = ["--remote", "--url", f"unix://{socket_path}"] + args
+
+    return subprocess.run([real_podman] + args).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())
