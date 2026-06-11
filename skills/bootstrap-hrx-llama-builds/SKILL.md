@@ -79,14 +79,14 @@ The script uses these workspace-local directories:
 - Required llama.cpp branch: `hrx-integration`.
 - Required hrx-system branch: `main`.
 - ROCm path: `$WORKSPACE/rocm`.
-- Default GPU target: `gfx1151`.
+- Default GPU target: auto-detected from `rocminfo`.
 - CMake generator: `Ninja`.
 - Build type: `RelWithDebInfo`.
 - ROCm health checks compare visible GPU execution against
   `ROCR_VISIBLE_DEVICES=` CPU-only execution.
 
 Pass `--gfx-targets` to override the target list, using comma or semicolon
-separators:
+separators. This is required when building on a host without a visible ROCm GPU:
 
 ```bash
 python skills/bootstrap-hrx-llama-builds/scripts/bootstrap_builds.py \

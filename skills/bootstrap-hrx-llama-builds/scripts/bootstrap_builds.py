@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -12,7 +13,8 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_GFX_TARGETS = "gfx1151"
+DEFAULT_GFX_TARGETS = "auto"
+FALLBACK_GFX_TARGETS = "gfx1151"
 EXPECTED_LLAMA_BRANCH = "hrx-integration"
 EXPECTED_HRX_BRANCH = "main"
 
@@ -86,6 +88,43 @@ def split_targets(raw: str) -> list[str]:
 
 def cmake_target_string(targets: list[str]) -> str:
     return ";".join(targets)
+
+
+def detect_gfx_targets(workspace: Path, env: dict[str, str]) -> list[str]:
+    rocminfo = workspace / "rocm" / "bin" / "rocminfo"
+    if not rocminfo.exists():
+        raise SystemExit(
+            f"cannot auto-detect --gfx-targets because rocminfo is missing: {rocminfo}\n"
+            f"Pass --gfx-targets {FALLBACK_GFX_TARGETS} or another explicit target."
+        )
+
+    result = run_probe([str(rocminfo)], cwd=workspace, env=env, timeout=30)
+    if result.returncode != 0:
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        detail = f"\nrocminfo output:\n{output}" if output else ""
+        raise SystemExit(
+            "cannot auto-detect --gfx-targets because rocminfo failed. "
+            f"Pass --gfx-targets {FALLBACK_GFX_TARGETS} or another explicit target.{detail}"
+        )
+
+    targets = []
+    for target in re.findall(r"\bName:\s+(gfx[0-9a-zA-Z_]+)\b", result.stdout):
+        if target not in targets:
+            targets.append(target)
+    if not targets:
+        raise SystemExit(
+            "cannot auto-detect --gfx-targets because rocminfo reported no GPU target. "
+            f"Pass --gfx-targets {FALLBACK_GFX_TARGETS} or another explicit target."
+        )
+
+    print(f"Auto-detected AMDGPU targets: {cmake_target_string(targets)}")
+    return targets
+
+
+def resolve_gfx_targets(workspace: Path, raw: str, env: dict[str, str]) -> list[str]:
+    if raw.strip().lower() == "auto":
+        return detect_gfx_targets(workspace, env)
+    return split_targets(raw)
 
 
 def find_under(root: Path, name: str) -> list[Path]:
@@ -498,7 +537,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Action to run. May be passed more than once. Defaults to check.",
     )
-    parser.add_argument("--gfx-targets", default=DEFAULT_GFX_TARGETS, help="Comma or semicolon separated AMDGPU targets")
+    parser.add_argument(
+        "--gfx-targets",
+        default=DEFAULT_GFX_TARGETS,
+        help="Comma or semicolon separated AMDGPU targets, or 'auto' to detect from rocminfo",
+    )
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument("--configure-only", action="store_true")
     parser.add_argument("--install-hrx-tests", action="store_true", help="Also install the HRX HrxTestsDist test tree")
@@ -510,8 +553,8 @@ def main() -> int:
     args = parse_args()
     workspace = args.workspace.resolve()
     actions = expand_actions(args.action or ["check"])
-    gfx_targets = split_targets(args.gfx_targets)
     env = base_env(workspace)
+    gfx_targets = resolve_gfx_targets(workspace, args.gfx_targets, env)
 
     if not gfx_targets:
         raise SystemExit("--gfx-targets must contain at least one target")
