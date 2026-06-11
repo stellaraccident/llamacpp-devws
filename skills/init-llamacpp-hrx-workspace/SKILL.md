@@ -52,7 +52,7 @@ Prefer the bundled script over hand-running clone commands.
   - `https://github.com/ROCm/hrx-system.git` to `sources/hrx-system`, branch
     `main`.
   - `https://github.com/ROCm/llama.cpp.git` to `sources/llama.cpp`, branch
-    `amd-integration`.
+    `hrx-integration`.
 - Refuse dirty or mismatched existing source checkouts and print remediation.
 
 ## Defaults

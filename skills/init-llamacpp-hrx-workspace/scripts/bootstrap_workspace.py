@@ -32,7 +32,7 @@ SOURCE_REPOS = (
     SourceRepo(
         name="llama.cpp",
         url="https://github.com/ROCm/llama.cpp.git",
-        branch="amd-integration",
+        branch="hrx-integration",
         path="sources/llama.cpp",
     ),
 )

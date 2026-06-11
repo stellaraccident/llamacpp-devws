@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap TheRock ROCm Source"
+  short_description: "Checkout and build ROCm from TheRock"
+  default_prompt: "Use $bootstrap-therock-rocm-source to checkout TheRock and prepare a debug core-runtime ROCm build."

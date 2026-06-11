@@ -1,0 +1,4 @@
+interface:
+  display_name: "HRX Build Bootstrap"
+  short_description: "Bootstrap HRX and llama.cpp builds"
+  default_prompt: "Use $bootstrap-hrx-llama-builds to configure and verify HRX, Loom, and llama.cpp builds in this workspace."

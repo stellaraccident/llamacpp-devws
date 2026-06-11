@@ -9,7 +9,7 @@ repositories.
 
 ```text
 sources/
-  llama.cpp/    ROCm llama.cpp checkout, branch amd-integration
+  llama.cpp/    ROCm llama.cpp checkout, branch hrx-integration
   hrx-system/   HRX runtime checkout, branch main
 build/          local build trees and install trees
 cache/          local caches and profiling scratch
@@ -58,7 +58,7 @@ The bootstrap creates required directories, creates or verifies the `rocm`
 symlink, and clones:
 
 - `https://github.com/ROCm/hrx-system.git` on `main`
-- `https://github.com/ROCm/llama.cpp.git` on `amd-integration`
+- `https://github.com/ROCm/llama.cpp.git` on `hrx-integration`
 
 It refuses to overwrite dirty or mismatched existing checkouts.
 

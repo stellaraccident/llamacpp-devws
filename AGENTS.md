@@ -12,7 +12,7 @@ This workspace is for shared development of llama.cpp with HRX support.
   - `sources/llama.cpp/` for llama.cpp work
   - `sources/hrx-system/` for HRX runtime work
 - Keep source checkout branches explicit. Default branches are:
-  - `sources/llama.cpp`: `amd-integration`
+  - `sources/llama.cpp`: `hrx-integration`
   - `sources/hrx-system`: `main`
 - Do not vendor build outputs, models, caches, profiles, or ROCm installs into
   the root repository.
