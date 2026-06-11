@@ -1,0 +1,4 @@
+interface:
+  display_name: "HRX2 Loom Authoring"
+  short_description: "Author Loom families for HRX2"
+  default_prompt: "Use $hrx2-loom-family-authoring to create a Loom kernel family with correctness, benchmark, and manifest evidence."

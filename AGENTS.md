@@ -28,6 +28,10 @@ This workspace is for shared development of llama.cpp with HRX support.
   - `GGML_HRX_ROCM_PATH=$WORKSPACE/rocm`
   - build trees under `build/`
   - scratch data under `cache/` or `.tmp/`
+- The workspace uses a direnv-managed `.venv`. Agents may install Python
+  tooling dependencies into this venv with `python3 -m pip install ...` when
+  needed; do not vendor those packages into the repository. `PyYAML` is
+  installed there for skill validation.
 
 ## Agent Workflow
 
