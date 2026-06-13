@@ -63,6 +63,7 @@ def classify(row: dict[str, Any]) -> str:
 
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [row for row in rows if row.get("event") == "sched_node"]
     by_class: collections.Counter[str] = collections.Counter()
     by_backend: collections.Counter[str] = collections.Counter()
     fallback: collections.Counter[tuple[str, str, str, str]] = collections.Counter()

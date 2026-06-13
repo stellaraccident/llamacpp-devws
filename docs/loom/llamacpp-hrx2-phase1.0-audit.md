@@ -1,6 +1,224 @@
 # HRX2 Phase 1.0 Coverage Audit
 
-Date: 2026-06-12
+Date: 2026-06-13
+
+## Latest Checkpoint: Route Slice 48
+
+Slice 48 closes the final unexplained compute fallback from the Phase 1 basket:
+the Llama 3.1 NORMAL frequency-source h32/p64 ROPE row.
+
+```text
+rope_normal_f32_freq_n128_d128_h32_t1_64_wg256
+```
+
+The original h32 frequency-source implementation recomputed each pair's theta
+scale through an independent `exp(log(base) * exponent)` expression. That
+compiled and passed decode/narrow rows but failed the strict ggml CPU-reference
+gate at `ntokens=64`. Slice 48 changes the NORMAL frequency-source Loom root to
+match the CPU recurrence: compute one `theta_scale = powf(freq_base, -2/n_dims)`
+equivalent, then multiply `theta` forward once per pair before dividing by the
+frequency-factor buffer.
+
+Evidence:
+
+```text
+cache/hrx2/phase1_0/basket-smoke-phase1-current-20260613-043737
+cache/hrx2/phase1_0/route-slice-48-rope-normal-h32-p64/focused-final-20260613-044740
+cache/hrx2/phase1_0/route-slice-48-rope-normal-h32-p64/llama31-p64-smoke-20260613-044755
+cache/hrx2/phase1_0/basket-smoke-route-slice-48-20260613-044836
+```
+
+Focused CPU-reference replay covered `ntokens=1`, `16`, and `64` for the exact
+h32 frequency-source row. All three rows selected
+`rope_normal_f32_freq_n128_d128_h32_t1_64_wg256`, compiled successfully, and
+passed.
+
+Full 11-model coverage basket result: 33/33 passed.
+
+Aggregate after slice 48, using the corrected graph-node-only reducer:
+
+| Metric | Count |
+| --- | ---: |
+| graph nodes | 481284 |
+| HRX20 compute nodes | 481284 |
+| CPU compute fallbacks | 0 |
+| infrastructure blockers | 32112 |
+
+Delta versus slice 47: `compute_fallback -192`, `HRX20 compute +192`.
+
+`top_compute_fallbacks` is empty and `cpu_assigned_but_hrx_supported` is empty.
+The remaining `infrastructure_blocker` rows are the deferred `SET_ROWS` host
+orchestration path already classified outside Phase 1 unfused compute coverage.
+Slice doc:
+
+```text
+docs/loom/llamacpp-hrx2-phase1.0-route-slice-48.md
+```
+
+## Previous Checkpoint: Route Slice 47
+
+Slice 47 added quantized embedding `GET_ROWS` coverage and the scheduler
+placement hook needed for CPU-seeded embedding gathers:
+
+```text
+get_rows_q4_k_f32_n2048_r1_512_wg256
+get_rows_q4_k_f32_n4096_r1_512_wg256
+get_rows_q4_k_f32_n5120_r1_512_wg256
+get_rows_q5_k_f32_n3584_r1_512_wg256
+get_rows_q6_k_f32_n2048_r1_512_wg256
+get_rows_q6_k_f32_n3072_r1_512_wg256
+get_rows_q6_k_f32_n5376_r1_512_wg256
+get_rows_q8_0_f32_n4096_r1_512_wg256
+```
+
+Evidence:
+
+```text
+cache/hrx2/phase1_0/route-slice-47-get-rows-quant/focused-final-20260613-042127
+cache/hrx2/phase1_0/route-slice-47-get-rows-quant/offload-hook-qwen-q4-p1-20260613-042034
+cache/hrx2/phase1_0/basket-smoke-route-slice-47-offload-hook-20260613-042340
+```
+
+Full 11-model coverage basket result: 33/33 passed.
+
+Aggregate after slice 47, using the corrected graph-node-only reducer:
+
+| Metric | Count |
+| --- | ---: |
+| graph nodes | 481284 |
+| HRX20 compute nodes | 481092 |
+| CPU compute fallbacks | 192 |
+| infrastructure blockers | 32112 |
+
+Delta versus slice 46: `compute_fallback -396`, `HRX20 compute +396`.
+
+Remaining compute fallback is the deliberately unclaimed Llama 3.1 NORMAL
+frequency-source h32/p64 ROPE row:
+
+```text
+ROPE f32 <- f32,i32,f32, shape 128x32x64x1, count 192
+```
+
+`cpu_assigned_but_hrx_supported` is empty after the offload hook. Slice doc:
+
+```text
+docs/loom/llamacpp-hrx2-phase1.0-route-slice-47.md
+```
+
+## Previous Checkpoint: Route Slice 46
+
+Slice 46 added compact dense F32 `GET_ROWS` coverage:
+
+```text
+get_rows_f32_n2048_r1_64_wg256
+get_rows_f32_n3072_r1_64_wg256
+get_rows_f32_n3584_r1_64_wg256
+get_rows_f32_n4096_r1_64_wg256
+get_rows_f32_n5120_r1_64_wg256
+get_rows_f32_n5376_r1_64_wg256
+```
+
+Evidence:
+
+```text
+cache/hrx2/phase1_0/route-slice-46-get-rows-f32/focused-existing-exports-20260613-032516
+cache/hrx2/phase1_0/route-slice-46-get-rows-f32/focused-phi4-3072-20260613-032546
+cache/hrx2/phase1_0/basket-smoke-route-slice-46-20260613-032627
+```
+
+Full 11-model coverage basket result: 33/33 passed.
+
+Aggregate after slice 46, using the corrected graph-node-only reducer:
+
+| Metric | Count |
+| --- | ---: |
+| graph nodes | 481284 |
+| HRX20 compute nodes | 480696 |
+| CPU compute fallbacks | 588 |
+| infrastructure blockers | 32112 |
+
+Delta versus slice 45: `compute_fallback -792`, `HRX20 compute +792`.
+
+Remaining compute fallbacks are now the deliberately unclaimed Llama 3.1
+NORMAL frequency-source h32/p64 ROPE row and quantized embedding `GET_ROWS`
+for `q4_K`, `q5_K`, `q6_K`, and `q8_0` sources. Slice doc:
+
+```text
+docs/loom/llamacpp-hrx2-phase1.0-route-slice-46.md
+```
+
+## Previous Checkpoint: Route Slice 45
+
+Slice 45 added Mistral NORMAL-mode no-frequency F32 ROPE coverage:
+
+```text
+rope_normal_f32_n128_d128_h8_t1_64_wg256
+rope_normal_f32_n128_d128_h32_t1_64_wg256
+```
+
+Evidence:
+
+```text
+cache/hrx2/phase1_0/route-slice-45-rope-mistral-export/focused-20260613-025336
+cache/hrx2/phase1_0/route-slice-45-rope-mistral-export/mistral-smoke-20260613-025422
+cache/hrx2/phase1_0/basket-smoke-route-slice-45-20260613-025611
+```
+
+Full 11-model coverage basket result: 33/33 passed.
+
+Aggregate after slice 45, using the corrected graph-node-only reducer:
+
+| Metric | Count |
+| --- | ---: |
+| graph nodes | 481284 |
+| HRX20 compute nodes | 479904 |
+| CPU compute fallbacks | 1380 |
+| infrastructure blockers | 32112 |
+
+Delta versus slice 44 re-reduced with the same graph-node-only reducer:
+`compute_fallback -2880`, `HRX20 compute +2880`.
+
+Remaining compute fallbacks are now the deliberately unclaimed Llama 3.1
+NORMAL frequency-source h32/p64 ROPE row and GET_ROWS embedding lookups. Slice
+doc:
+
+```text
+docs/loom/llamacpp-hrx2-phase1.0-route-slice-45.md
+```
+
+## Previous Checkpoint: Route Slice 43
+
+Slice 43 added the Llama 3.1 normal-mode frequency-factor ROPE h32 decode and
+narrow bucket:
+
+```text
+rope_normal_f32_freq_n128_d128_h32_t1_16_wg256
+```
+
+Evidence:
+
+```text
+cache/hrx2/phase1_0/route-slice-43-rope-normal-h32/focused-split-t1-t16-20260613-015955
+cache/hrx2/phase1_0/route-slice-43-rope-normal-h32/llama31-smoke-split-20260613-020010
+cache/hrx2/phase1_0/basket-smoke-route-slice-43-20260613-020246
+```
+
+Full 11-model coverage basket result: 33/33 passed.
+
+Aggregate after slice 43:
+
+| Metric | Count |
+| --- | ---: |
+| graph nodes | 503494 |
+| HRX20 compute nodes | 469852 |
+| CPU compute fallbacks | 11432 |
+| infrastructure blockers | 32112 |
+| host orchestration | 22210 |
+
+Remaining top compute fallbacks are now dominated by split `GLU`, no-frequency
+ROPE, GET_ROWS, and the rejected h32/p64 normal-frequency ROPE row. The h32/p64
+frequency-source route compiled but failed strict ggml CPU-reference tolerance,
+so it remains deliberately unclaimed until numeric parity is fixed.
 
 This is the checkpoint after the first phase 1.0 miniature sweep. The goal was
 not to finish the catalog; it was to prove the route-admission loop on a small
@@ -44,7 +262,37 @@ offloaded:
 `SET_ROWS` is still an infrastructure fallback, not accepted optimized kernel
 coverage. GET_ROWS remains on CPU.
 
-## Latest Evidence
+## Prior Evidence
+
+Route slice 44 large split GLU coverage:
+
+```text
+cache/hrx2/phase1_0/basket-smoke-route-slice-44-20260613-current
+```
+
+All 33 basket runs passed. Current aggregate:
+
+| Class | Count |
+| --- | ---: |
+| accelerated | 444912 |
+| infrastructure blocker | 32112 |
+| host orchestration | 7726 |
+| compute fallback | 4260 |
+
+Current compute backend counts:
+
+| Backend | Count |
+| --- | ---: |
+| HRX20 | 477024 |
+| CPU | 4260 |
+
+Delta versus route slice 43: `compute_fallback -7172`, `HRX20 compute +7172`.
+No GLU row remains in `top_compute_fallbacks`; the remaining top compute
+fallbacks are normal ROPE and GET_ROWS shapes. Slice doc:
+
+```text
+docs/loom/llamacpp-hrx2-phase1.0-route-slice-44.md
+```
 
 Focused CONT correctness:
 
@@ -327,15 +575,23 @@ are offloaded or fused.
 
 ## Checkpoint Decision
 
-Current accepted route count is 14:
+Current catalog route count is 85, including the deliberately non-optimized
+host-mediated SET_ROWS fallback rows:
 
 ```text
-2 rms_norm_f32
-2 add_f32
-2 mul_f32
-2 scale_f32
-4 cont_f32
-2 swiglu_f32
+6 add_f32
+3 argsort_f32_i32
+3 clamp_f32
+5 cont_f32
+3 div_f32
+3 get_rows_moe_weights_f32
+5 mul_f32
+10 mul_mat_q8_0_f32
+32 rms_norm_f32
+3 scale_f32
+2 set_rows_f32
+3 sum_rows_f32
+7 swiglu_f32
 ```
 
 The route-admission backplane is viable for continued phase 1 work:
@@ -354,6 +610,105 @@ The first 15-route slice after this checkpoint is documented in
 `docs/loom/llamacpp-hrx2-phase1.0-route-slice-15.md`. It added RMS_NORM,
 row-strided ADD, and split-SWIGLU routes; the full basket still passed 33/33
 and CPU compute fallbacks dropped from 300420 to 264240.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-26.md`. It added eight
+`ncols=128` RMS_NORM row buckets and three MoE pointwise layout routes:
+RHS column-broadcast MUL for `2048x8` decode/narrow rows and row-strided ADD
+for `2048x16`. The full basket still passed 33/33, CPU compute fallbacks
+dropped from 264240 to 242502, and HRX20 compute-node ownership rose from
+217044 to 238782. Infrastructure blockers remained unchanged at 32112.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-27.md`. It added 15 routes:
+three MoE `DIV` RHS-column-broadcast rows, three MoE `CLAMP` rows, three
+`SUM_ROWS` row-reduction rows, and six residual RMS_NORM rows for
+`3072x64`, `3584x{1,16,64}`, and `4096x{16,64}`. Focused validation passed
+15/15 with no provider failures, zero spills, and zero private memory. The full
+basket still passed 33/33, CPU compute fallbacks dropped from 242502 to
+238536, and HRX20 compute-node ownership rose from 238782 to 242748.
+Infrastructure blockers remained unchanged at 32112.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-28.md`. It added six MoE
+support routes: DESC `ARGSORT` for `128x{1,16,64}` and narrow MoE weight
+`GET_ROWS` for `1x8x{1,16,64}`. Focused validation passed 6/6 with six
+successful JIT compiles, six dispatches, no provider failures, zero spills,
+zero private memory, and zero local memory. The full basket still passed 33/33.
+CPU compute fallbacks stayed at 238536 and HRX20 compute-node ownership stayed
+at 242748, because the full-model scheduler now reports `ARGSORT` and
+`GET_ROWS` as `supported_by=HRX20,CPU` but still assigns the whole MoE island
+to CPU behind CPU-only `MUL_MAT_ID` gate/up/down paths.
+
+Important placement finding from route slice 28: the traced top-k/gather
+support prefix is no longer unsupported, but it still cannot reduce model-level
+fallback counts until `MUL_MAT_ID` coverage is added or the MoE graph island is
+otherwise split. The accepted `ARGSORT` implementation is a rank-count no-LDS
+fallback for small `ncols=128`; bitonic/LDS candidates remain blocked by a
+dispatch-time GPU fault documented in `docs/loom/loom-bugs-limitations.md`.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-29.md`. It added 18 no-`src2`
+NEOX F32 `ROPE` routes for `ncols=128`,
+`nheads={4,8,16,28,32,40}`, and `ntokens={1,16,64}`. Focused validation
+passed 18/18 with 18 successful JIT compiles, 18 dispatches, no provider
+failures, zero spills, zero private memory, and zero local memory. The full
+basket still passed 33/33, CPU compute fallbacks dropped from 238536 to
+218232, and HRX20 compute-node ownership rose from 242748 to 263052.
+Infrastructure blockers remained unchanged at 32112.
+
+Important implementation finding from route slice 29: `scalar.powf<afn>` does
+not currently lower to AMDGPU target-low. The accepted ROPE source spells
+`pow(freq_base, exponent)` as `exp(log(freq_base) * exponent)` using
+`scalar.logf<afn>` and `scalar.expf<afn>`, which passed focused ggml
+CPU-reference validation. The limitation is recorded in
+`docs/loom/loom-bugs-limitations.md`.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-30.md`. It added 15 F32
+`SOFT_MAX` routes: 12 masked attention routes for `ncols=256` and
+`nrows={24,28,32,40,384,448,512,640,1536,1792,2048,2560}`, plus three
+unmasked MoE probability routes for `ncols=128` and `nrows={1,16,64}`.
+Focused validation passed 6/6 masked/unmasked representative rows against
+ggml CPU reference, with six successful JIT compiles, six dispatches, no
+provider failures, zero spills, zero private memory, 32-64 bytes local memory,
+and peak live units at 7-11. The full basket still passed 33/33, CPU compute
+fallbacks dropped from 218232 to 202176, and HRX20 compute-node ownership rose
+from 263052 to 279108. Infrastructure blockers remained unchanged at 32112.
+
+Important placement finding from route slice 30: unmasked MoE `SOFT_MAX`
+routes are now supported and pass focused validation, but the full basket still
+assigns them to CPU because the upstream `ffn_moe_logits` producer remains in
+a CPU-only `MUL_MAT_ID` island. This is not a softmax provider failure; it is a
+route-placement dependency on MoE matmul coverage.
+
+The next accepted route slice is documented in
+`docs/loom/llamacpp-hrx2-phase1.0-route-slice-31.md`. It added a
+target-neutral F16/F32 batched attention `MUL_MAT` family for the observed KQ
+and KQV layouts: `k={128,256}`, `rows={128,256}`, `cols={1,16,64}`, attention
+heads `{24,28,32,40}`, and grouped F16 source heads `{4,8,16}`. Focused
+validation passed 12/12 exact graph-op rows against ggml CPU reference, with
+12 successful JIT compiles, 12 dispatches, no provider failures, zero spills,
+zero private memory, and peak live units at 11-20. The full basket still
+passed 33/33, selected `mul_mat_f16_f32_batched_attention_wg256` 2676 times,
+and left zero F16/F32 `MUL_MAT` compute fallbacks.
+
+Important trace interpretation finding from route slice 31: moving attention
+matmuls from CPU to HRX2 changes graph partitioning and removes a large amount
+of CPU island/copy structure, so total scheduler-node counts are not a clean
+apples-to-apples delta against route slice 30. The direct acceptance signals
+are the absence of residual F16/F32 `MUL_MAT` fallbacks, the route dispatch
+count, no provider failures, and 33/33 basket pass evidence.
+
+Current remaining top fallback priorities after route slice 31:
+
+| Priority | Families | Why |
+| ---: | --- | --- |
+| 1 | Q4_K/Q5_K/Q6_K `MUL_MAT` and `MUL_MAT_ID` | Dominates dense and MoE model fallback counts; `MUL_MAT_ID` keeps supported MoE top-k/gather/normalization/GLU support routes in CPU islands. |
+| 2 | `ROPE` with `src2` frequency factors | Gemma/Phi-style ROPE ABI remains a separate CPU fallback family after no-`src2` NEOX coverage. |
+| 3 | F32/F32 MoE logits and residual dense matmuls | Keeps narrow MoE support chains on CPU for some models. |
+| 4 | Broader GLU/SWIGLU route coverage | Some focused GLU routes are accepted, but many dense model GLU shapes still report CPU-only support and should be covered after producer matmul route plans are clear. |
+| 5 | Residual pointwise/layout gaps found by future traces | Current RMS residuals from slice 26 are covered; new rows should be admitted only from fresh fallback evidence. |
 
 Next slice rules:
 
@@ -383,7 +738,85 @@ cmake --build build/llama-hrx2 --target ggml-hrx2 test-backend-ops llama-bench -
 The coherent llama.cpp checkpoints are:
 
 ```text
-c501479c4 hrx2: add swiglu f32 route coverage
-6f524f373 hrx2: remove unvalidated rms norm fallback route
+be0c4b2bb hrx2: add softmax f32 routes
+e2931a1bc hrx2: add rope neox f32 routes
+7ae0bce4b hrx2: add moe argsort and weight gather routes
+6a95a9ec5 hrx2: add moe support and residual rms routes
+22432eccf hrx2: add phase one pointwise and rms routes
+20db711cc hrx2: add phase one route slice
 3d1f29c9f hrx2: fix q8 matmul graph execution
 ```
+## 2026-06-13: Quantized Expert Matmul Loader And Indexed Coverage
+
+Route slices 38 and 40 closed the Q4_K/Q5_K/Q6_K indexed expert matmul
+coverage gap and fixed the loader-domain issue that left quantized weights in
+CPU buffers despite runtime route support.
+
+Latest full basket smoke:
+
+```text
+cache/hrx2/phase1_0/basket-smoke-route-slice-40-20260613-010859
+```
+
+Result: `33/33` passed across the 11-model decode/narrow/prefill64 basket.
+
+Aggregate scheduler reduction:
+
+- nodes: `516270`
+- accelerated: `426182`
+- host orchestration: `34986`
+- infrastructure blocker: `32112`
+- compute fallback: `22990`
+- HRX20 compute: `458294`
+- CPU compute: `22990`
+
+Important shift: quantized `MUL_MAT_ID` is now accelerated in the aggregate
+instead of dominating the fallback list. Remaining top compute fallbacks are
+F32/F32 attention matmul, Q8_0 wider matmul, ROPE frequency-source variants,
+GLU width coverage, and GET_ROWS rows.
+
+Route slice 41 widened the existing target-neutral Q8_0 direct `MUL_MAT`
+source and route domains for large dense rows and `k=14336`/larger reductions.
+The full basket still passed `33/33` at:
+
+```text
+cache/hrx2/phase1_0/basket-smoke-route-slice-41-20260613-012314
+```
+
+Aggregate scheduler reduction:
+
+- nodes: `515064`
+- accelerated: `430444`
+- host orchestration: `33780`
+- infrastructure blocker: `32112`
+- compute fallback: `18728`
+- HRX20 compute: `462556`
+- CPU compute: `18728`
+
+Q8_0 direct `MUL_MAT` no longer appears in the aggregate fallback list. The
+remaining top fallback priorities are F32/F32 matmul, ROPE frequency-source
+variants, GLU/SWIGLU width coverage, and GET_ROWS rows.
+
+Route slice 42 added target-neutral F32/F32 `MUL_MAT` coverage for Qwen3 MoE
+logits, `k=2048`, `rows=128`, and `cols=1..512`. Focused ggml CPU-reference
+validation passed exact graph-op rows for `cols={1,16,64}` with zero spills and
+zero private memory. The full basket still passed `33/33` at:
+
+```text
+cache/hrx2/phase1_0/basket-smoke-route-slice-42-20260613-014041
+```
+
+Aggregate scheduler reduction:
+
+- nodes: `506424`
+- accelerated: `435628`
+- host orchestration: `25140`
+- infrastructure blocker: `32112`
+- compute fallback: `13544`
+- HRX20 compute: `467740`
+- CPU compute: `13544`
+
+The new route dispatched `864` times in the full basket, and F32/F32 `MUL_MAT`
+no longer appears in the aggregate fallback list. Remaining top fallback
+priorities are ROPE frequency-source variants, GLU/SWIGLU width coverage,
+residual no-frequency ROPE variants, and GET_ROWS rows.

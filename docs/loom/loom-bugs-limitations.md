@@ -11,6 +11,164 @@ catalog, invalidates benchmark evidence, blocks a kernel source from compiling,
 or requires a runtime workaround. Do not bury those items in the general author
 feedback log.
 
+## 2026-06-13: Scheduler reducer counted split events as compute fallback nodes
+
+- **Area:** HRX2 Phase 1 coverage accounting.
+- **Affected source:** `tools/hrx2_reduce_sched_trace.py`.
+- **Observed case:** Route-slice-44 summaries included `sched_split_begin`
+  compute events in the same reduction as `sched_node` graph nodes.
+- **Symptom:** CPU-owned graph islands could inflate top fallback counts with
+  split-level ROPE rows, making the report look like more individual graph
+  nodes were CPU fallbacks than the node trace alone proved.
+- **Impact:** Route-slice summaries produced before this fix are still useful
+  for ranking, but their `node_count`, class totals, and top fallback counts
+  should be treated as mixed scheduler-event accounting rather than pure graph
+  node coverage.
+- **Fix:** The reducer now filters to `event == "sched_node"` before
+  classifying coverage. Split-level diagnostics should be reduced separately
+  if needed.
+- **Evidence:** During the route-slice-45 Mistral ROPE audit, direct
+  `sched_node` inspection and HRX2 dispatch traces proved the missing route was
+  NORMAL no-frequency ROPE, while mixed-event reductions also included CPU
+  split events.
+- **Owner:** HRX2 coverage tooling.
+
+## 2026-06-13: Normal-frequency ROPE h32/p64 strict tolerance was sensitive to theta spelling
+
+- **Area:** HRX2 ROPE route admission and Loom AMDGPU transcendental numeric
+  parity.
+- **Affected source:**
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/rope_neox_f32_freq.loom`,
+  route `rope_normal_f32_freq_n128_d128_h32_t1_64_wg256` in
+  `sources/llama.cpp/ggml/src/ggml-hrx2/catalog.json`.
+- **Observed case:** Llama 3.1 normal-mode ROPE with F32 frequency factors,
+  `mode=0`, `ncols=128`, `n_dims=128`, `nheads=32`, `ntokens=64`.
+- **Symptom:** The h32 route compiles and dispatches, but focused
+  `test-backend-ops` replay of the p64 graph row failed strict CPU-reference
+  tolerance:
+
+  ```text
+  [ROPE] ERR = 0.000007262 > 0.000000100
+  ```
+
+- **Impact:** Numeric spelling matters for ROPE acceptance. Do not treat two
+  algebraically equivalent transcendental expressions as interchangeable unless
+  the focused ggml CPU-reference gate covers the target token bucket.
+- **Fix:** Route slice 48 rewrote the NORMAL frequency-source root to match the
+  CPU recurrence: compute one `theta_scale` and multiply `theta` forward once
+  per pair before dividing by the frequency-factor buffer. The route now admits
+  `ntokens=1..64`.
+- **Evidence:**
+  - Failing focused p1/p16/p64 replay:
+    `cache/hrx2/phase1_0/route-slice-43-rope-normal-h32/focused-20260613-015635`.
+  - Passing split-domain focused replay:
+    `cache/hrx2/phase1_0/route-slice-43-rope-normal-h32/focused-split-t1-t16-20260613-015955`.
+  - Passing recurrence focused replay:
+    `cache/hrx2/phase1_0/route-slice-48-rope-normal-h32-p64/focused-final-20260613-044740`.
+  - Passing final basket with zero unexplained compute fallbacks:
+    `cache/hrx2/phase1_0/basket-smoke-route-slice-48-20260613-044836`.
+- **Owner:** Resolved in HRX2 route slice 48; keep this entry as a regression
+  warning for future ROPE rewrites.
+
+## 2026-06-13: Multi-family route lookup discarded earlier ROPE providers
+
+- **Area:** HRX2 runtime catalog loading and route admission.
+- **Affected source:** `sources/llama.cpp/ggml/src/ggml-hrx2/ggml-hrx2.cpp`.
+- **Observed case:** Qwen3 30B A3B UD-Q4 exported ROPE rows with no frequency
+  factors, `mode=2` / NEOX, `ncols=128`, `nheads=4 or 32`, and `ntokens=1 or
+  64`.
+- **Symptom:** The structural C++ support predicate accepted the rows, but
+  focused `test-backend-ops` reported the rows unsupported. Debug route
+  tracing showed `device_context->rope_routes` contained only
+  `rope_normal_f32_freq_n128_d128_h8_24_t1_64_wg256`; all NEOX providers were
+  absent, so route selection could not find a matching binding/domain.
+- **Root cause:** `ggml_backend_hrx2_catalog_find_routes` clears the output
+  vector before adding matches. Device initialization called it once for
+  `rope_neox_f32` and then again for `rope_f32` using the same
+  `device_context->rope_routes` vector. The second call discarded the earlier
+  NEOX routes.
+- **Impact:** Multi-family ggml ops can appear correctly authored and
+  cataloged but be unavailable at runtime if route loading reuses a vector
+  across clearing lookup calls. Focused route validation catches this; source
+  and catalog validation alone do not.
+- **Fix:** Load all ROPE providers with one op-wide catalog lookup
+  (`family=null`, `op=ROPE`) so the vector contains every ROPE family and the
+  existing route-selection metadata chooses the applicable provider.
+- **Evidence:**
+  - Failing/exported rows:
+    `cache/hrx2/phase1_0/route-slice-37-rope-mode-export-current/qwen3_ud_q4_rope_ops.txt`.
+  - Passing focused CPU-reference replay:
+    `cache/hrx2/phase1_0/route-slice-37-rope-loader-fix-current`.
+  - Passing Qwen3 decode/narrow/prefill64 model smoke:
+    `cache/hrx2/phase1_0/route-slice-37-rope-loader-fix-current/qwen3-smoke`.
+- **Owner:** HRX2 runtime catalog loading.
+
+## 2026-06-12: AMDGPU target-low lacks scalar.powf contract
+
+- **Area:** Loom AMDGPU math lowering for HRX2 production kernels.
+- **Affected source:** Initial
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/rope_neox_f32.loom`.
+- **Observed case:** Phase 1 route slice 29 attempted to compile no-`src2`
+  NEOX F32 ROPE with:
+
+  ```text
+  %theta_pow = scalar.powf<afn> %freq_base, %exponent : f32
+  ```
+
+- **Symptom:** Focused `test-backend-ops` route validation failed provider
+  JIT compilation with:
+
+  ```text
+  TARGET/001: target 'amdgpu-rdna3' export 'hrx2_rope_neox_f32'
+  config 'amdgpu.rdna3.core' has no target-low contract for 'scalar.powf'
+  ```
+
+- **Impact:** Agents should not use `scalar.powf<afn>` in accepted AMDGPU
+  HRX2 Loom sources without first proving the current branch lowers it. A
+  route can pass source formatting/build-bytecode steps and still fail at JIT
+  compile time for the target.
+- **Workaround:** Rewrite `pow(freq_base, exponent)` as
+  `exp(log(freq_base) * exponent)` using `scalar.logf<afn>` and
+  `scalar.expf<afn>`. Loom's AMDGPU math legalization tests cover those
+  approximate forms, and the corrected ROPE source passed focused ggml
+  CPU-reference validation for all accepted route rows.
+- **Evidence:**
+  - Failing focused run:
+    `cache/hrx2/phase1_0/route-slice-29-rope-focused-20260612-214203`.
+  - Passing focused run after rewrite:
+    `cache/hrx2/phase1_0/route-slice-29-rope-focused-20260612-214501`.
+- **Owner:** Loom AMDGPU math lowering; HRX2 keeps the workaround in source
+  until `scalar.powf` lowering is available and validated.
+
+## 2026-06-12: Catalog validator and C++ loader had stale pointwise ABI assumptions
+
+- **Area:** HRX2 catalog validation and embedded catalog loading.
+- **Affected source:**
+  `sources/llama.cpp/ggml/src/ggml-hrx2/tools/validate_hrx2_catalog.py`,
+  `sources/llama.cpp/ggml/src/ggml-hrx2/ggml-hrx2-catalog.cpp`.
+- **Observed case:** Route slice 26 added pointwise layout config sources:
+  `shape.pointwise.src0_row_stride` and `shape.pointwise.src1_ncols`.
+- **Symptom:** The Python validator rejected the new binding sources. After
+  that was fixed, the C++ catalog loader printed:
+
+  ```text
+  HRX2: invalid route entry in catalog
+  ```
+
+  because it still required `parameter_count > 0`, even though existing
+  buffer-only kernels can legitimately have no scalar launch parameters.
+- **Impact:** A source/catalog change could pass build artifact generation but
+  fail at runtime catalog load, or force agents to avoid adding necessary
+  layout-specialization axes.
+- **Fix:** The validator now accepts the new pointwise binding sources and
+  treats ABI `parameter_count` as present/nonnegative. The C++ loader now
+  requires nonempty route/source/root/export and positive binding count, but
+  allows zero scalar parameters.
+- **Evidence:** Route slice 26 focused validation passed with the intended
+  pointwise route IDs selected:
+  `cache/hrx2/phase1_0/route-slice-26-20260612-201843/test-focused-rerun`.
+- **Owner:** HRX2 catalog tooling.
+
 ## 2026-06-12: Llama 3.1 8B Q8_0 basket smoke aborted before q8 dispatch
 
 - **Area:** HRX2 model-level runtime validation and q8_0 route admission.
@@ -231,7 +389,7 @@ feedback log.
   each admitted layout with `test-backend-ops`.
 - **Owner:** HRX2 backend/kernel catalog.
 
-## 2026-06-12: GET_ROWS f32 high-level Loom candidate fails target lowering and correctness
+## 2026-06-12: Generic flat GET_ROWS f32 Loom candidate fails target lowering and correctness
 
 - **Area:** Loom target lowering and HRX2 unfused coverage.
 - **Affected attempted source:** `cache/hrx2/phase1_0/rejected-get-rows/get_rows_f32.loom`
@@ -248,11 +406,358 @@ feedback log.
 - **Secondary symptom:** Some `ncols=256` cases that reached execution produced
   numeric mismatches with maximum absolute error around `2.0`, so this is not
   only a target-proof problem.
-- **Impact:** HRX2 must not advertise GET_ROWS f32 support yet. Leaving a route
-  selectable causes the scheduler to assign GET_ROWS to HRX2 and either fail
-  JIT compilation or fail CPU-reference validation.
-- **Workaround:** The GET_ROWS candidate was removed from the production
-  catalog and runtime route discovery. Keep GET_ROWS on CPU until the address
-  proof and indexing semantics are corrected, preferably with a smaller
-  standalone Loom reproduction before re-adding route metadata.
+- **Update 2026-06-13:** Route slice 46 accepted a narrower compact-dense F32
+  `GET_ROWS` family. The passing source uses a 2D dense view spelling
+  `src0[row_index, col] -> dst[row, col]` plus an explicit `src0_nrows`
+  config, and the runtime predicate admits only dense F32 source rows, I32
+  indices, and dense F32 destination rows. Focused graph-op validation and the
+  full basket passed at:
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-46-get-rows-f32/focused-existing-exports-20260613-032516
+  cache/hrx2/phase1_0/route-slice-46-get-rows-f32/focused-phi4-3072-20260613-032546
+  cache/hrx2/phase1_0/basket-smoke-route-slice-46-20260613-032627
+  ```
+
+- **Update 2026-06-13:** Route slice 47 accepted separate quantized embedding
+  `GET_ROWS` families for `q4_K`, `q5_K`, `q6_K`, and `q8_0` sources. Focused
+  graph-op validation passed 41/41 exact rows and the full basket passed at:
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-47-get-rows-quant/focused-final-20260613-042127
+  cache/hrx2/phase1_0/basket-smoke-route-slice-47-offload-hook-20260613-042340
+  ```
+
+- **Remaining limitation:** The original flat/generic GET_ROWS spelling is
+  still rejected and should not be generalized back into production coverage
+  without a focused Loom reproduction. Accepted F32 and quantized embedding
+  routes are narrow, traced-layout route families rather than generic ggml
+  `GET_ROWS`.
+- **Additional route-admission finding:** Unused Loom `config.decl` entries can
+  be pruned from the linked source. If the catalog still binds such a pruned
+  key, HRX2 JIT fails with a diagnostic like:
+
+  ```text
+  CONFIG/INVALID: unknown config 'hrx2.shape.get_rows.src0_row_stride'
+  ```
+
+  Keep catalog specialization bindings limited to configs consumed by the
+  selected root, or deliberately consume the config in source.
+- **Impact:** HRX2 may advertise the accepted compact-dense F32 and quantized
+  embedding route domains, but broader strided/dynamic/generic GET_ROWS remains
+  unsupported.
+- **Workaround:** Keep the support predicate narrow and use exact graph-op rows
+  for validation. Do not use generic `test-backend-ops -o GET_ROWS` as the sole
+  admission gate for this family.
 - **Owner:** Loom lowering investigation plus HRX2 route admission.
+
+## 2026-06-13: Supported quantized embedding GET_ROWS stayed CPU-assigned without offload_op
+
+- **Area:** HRX2 scheduler placement and CPU/host-seeded embedding gathers.
+- **Affected source:** `sources/llama.cpp/ggml/src/ggml-hrx2/ggml-hrx2.cpp`.
+- **Observed case:** Route slice 47 after adding quantized `GET_ROWS` routes
+  for Qwen, Llama, Mistral, Gemma, and Phi hidden-width buckets.
+- **Symptom:** Focused CPU-reference validation accepted the quantized routes,
+  but full-basket scheduler traces still assigned 396 quantized embedding
+  `GET_ROWS` graph nodes to CPU. The trace showed the nodes as
+  `supported_by=[HRX20,CPU]`, so this was placement, not route support.
+- **Root cause:** llama.cpp's scheduler uses backend `offload_op` to move
+  CPU/host-weight seeded ops to a higher-priority backend in this path. HRX2
+  had `offload_op = nullptr`, so CPU-seeded token embedding gathers stayed in
+  the CPU island even when `supports_op` was true.
+- **Fix:** Added a conservative HRX2 device `offload_op` hook that delegates to
+  `supports_op` only for `GGML_OP_GET_ROWS`.
+- **Impact:** Future route families can pass focused validation yet fail to
+  move model-level coverage if their source placement relies on scheduler
+  offload hooks. Check `cpu_assigned_but_hrx_supported` in the reduced basket
+  summary before claiming model-level coverage.
+- **Evidence:**
+
+  ```text
+  cache/hrx2/phase1_0/basket-smoke-route-slice-47-loader-20260613-040651
+  cache/hrx2/phase1_0/route-slice-47-get-rows-quant/offload-hook-qwen-q4-p1-20260613-042034
+  cache/hrx2/phase1_0/basket-smoke-route-slice-47-offload-hook-20260613-042340
+  ```
+
+- **Owner:** HRX2 backend scheduler integration.
+
+## 2026-06-12: MoE downstream support routes remain CPU-assigned until top-k/gather is offloaded
+
+- **Area:** HRX2 scheduler placement and Phase 1 MoE coverage.
+- **Evidence:** Full basket route slice 27:
+  `cache/hrx2/phase1_0/basket-smoke-route-slice-27-20260612-204250`.
+- **Symptom:** Focused `test-backend-ops` validates new HRX2 routes for
+  `SUM_ROWS`, `CLAMP`, and `DIV`, but the full basket still reports those ops
+  as CPU compute fallbacks. Scheduler traces show:
+
+  ```text
+  ARGSORT supported_by=CPU
+  GET_ROWS supported_by=CPU
+  SUM_ROWS/CLAMP/DIV supported_by=HRX20,CPU but assigned CPU
+  ```
+
+- **Update from route slice 28:** Narrow MoE `ARGSORT` and MoE weight
+  `GET_ROWS` routes are now accepted in focused validation and show
+  `supported_by=HRX20,CPU` in the full basket, but the whole MoE island is
+  still CPU-assigned because `MUL_MAT_ID` remains CPU-only:
+
+  ```text
+  ARGSORT supported_by=HRX20,CPU assigned CPU
+  GET_ROWS supported_by=HRX20,CPU assigned CPU
+  SUM_ROWS/CLAMP/DIV supported_by=HRX20,CPU assigned CPU
+  MUL_MAT_ID supported_by=CPU assigned CPU
+  ```
+
+- **Impact:** Downstream MoE support kernels and existing GLU routes cannot
+  reduce model-level fallback counts while `MUL_MAT_ID` gate/up/down paths
+  keep the island on CPU. This is not a validation failure for the accepted
+  support routes, but it is a Phase 1 coverage blocker.
+- **Workaround:** Prioritize `MUL_MAT_ID` and related quantized matmul
+  coverage before spending more effort on model-level impact for the MoE
+  support chain.
+- **Owner:** HRX2 backend route coverage, especially `MUL_MAT_ID`.
+
+## 2026-06-12: Generic SOFT_MAX test coverage misses HRX2 attention route domain
+
+- **Area:** HRX2 focused validation workflow.
+- **Observed case:** Route slice 30 accepts attention softmax rows with
+  `ncols=256`, F32 masks, and broadcast head/token shapes from the model
+  basket.
+- **Symptom:** `test-backend-ops -o SOFT_MAX` generates useful generic
+  softmax cases, but not the exact `ncols=256` route domain. A support run over
+  generated SOFT_MAX cases therefore reports no supported rows even though the
+  model-basket scheduler reports the accepted rows as `supported_by=HRX20,CPU`.
+- **Evidence:**
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-30-softmax-focused-20260612-current/test-focused-masked-generator
+  cache/hrx2/phase1_0/route-slice-30-softmax-focused-20260612-current/test-focused-masked-manual
+  ```
+
+- **Impact:** Agents must not use generic `-o SOFT_MAX` coverage alone to
+  decide whether Phase 1 attention softmax routes are unsupported.
+- **Workaround:** Use exact graph-op rows from model export when available, or
+  construct a focused test file with `GGML_OP_SOFT_MAX` rows matching the route
+  domain and run `test-backend-ops --test-file` against HRX2. Route slice 30
+  used manual rows for `256x1x{24,32,40}x1` masked attention and exported rows
+  for `128x{1,16,64}` unmasked MoE probabilities.
+- **Owner:** HRX2 validation workflow. A future production helper should
+  generate exact graph-op test files from route metadata and observed
+  scheduler rows.
+
+## 2026-06-12: Generic MUL_MAT tests miss p021 F16 attention matvec layouts
+
+- **Area:** HRX2 focused validation workflow.
+- **Observed case:** Route slice 31 accepts F16/F32 attention `MUL_MAT` rows
+  where `src0` has p021-style byte strides and grouped-head broadcast, for
+  example `src0 ne=[128,256,4,1] nb=[2,1024,256,262144]`.
+- **Symptom:** Generic `test-backend-ops -o MUL_MAT` coverage does not provide
+  the exact strided/batched attention layouts needed to validate this family.
+  A generic pass is therefore not sufficient evidence that the route is
+  covered or uncovered.
+- **Evidence:**
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-31-f16-attn-focused-current/mul_mat_f16_f32_attention_ops.txt
+  cache/hrx2/phase1_0/route-slice-31-f16-attn-focused-current
+  ```
+
+- **Impact:** Agents must derive exact graph-op rows from model scheduler
+  traces or exported graph-op files for attention matvec validation.
+- **Workaround:** Route slice 31 generated focused `GGML_OP_MUL_MAT` rows
+  directly from the basket scheduler metadata and replayed them with
+  `test-backend-ops --test-file` against ggml CPU reference.
+- **Update 2026-06-13:** The same validation trap appeared for the F32/F32
+  MoE-logits matmul. `test-backend-ops -o MUL_MAT -p
+  type_a=f32,type_b=f32,m=...,n=...,k=...` exited successfully with only a CSV
+  header and no HRX2 trace. Route slice 42 used exact exported graph-op rows
+  instead.
+- **Owner:** HRX2 validation workflow. A reusable route-domain-to-test-file
+  helper should be added before the broad kernel sweep grows much larger.
+
+## 2026-06-12: ARGSORT bitonic/LDS candidates compile but GPU-fault under HRX2 raw dispatch
+
+- **Area:** Loom source/runtime interaction for workgroup-memory ARGSORT.
+- **Affected attempted sources:** Phase 1 route slice 28 scratch candidates
+  under `cache/hrx2/phase1_0/route-slice-28-current`.
+- **Observed case:** MoE `ARGSORT` for `f32 -> i32`, DESC, `ncols=128`, rows
+  `1`, `16`, and `64`.
+- **Symptoms:**
+  - A dynamic bitonic source using `index.div`/`index.shrui` loop control hit
+    an AMDGPU target diagnostic around address-width proof.
+  - Static/unrolled bitonic sources using workgroup scratch compiled, but
+    focused `test-backend-ops` runs GPU-faulted on dispatch with a page-not-
+    present/supervisor-privilege memory access fault.
+- **Evidence:**
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-28-current/test-focused-vector-scratch
+  cache/hrx2/phase1_0/route-slice-28-current/test-focused-static-argsort
+  ```
+
+- **Impact:** The natural one-workgroup bitonic/LDS prior cannot currently be
+  accepted for HRX2 production. Agents should not assume "compiled" means this
+  source is safe to dispatch.
+- **Workaround:** Route slice 28 uses a rank-count no-LDS `ARGSORT` fallback
+  for phase-one coverage. It is correct for the traced `ncols=128` MoE support
+  shape and has clean compile reports, but it is not a final general sort/top-k
+  algorithm.
+- **Owner:** Loom lowering/runtime investigation, with HRX2 keeping the
+  rank-count route narrow until the LDS fault is explained.
+
+## 2026-06-13: Shape-only ROPE tests can validate the wrong pairing mode
+
+- **Area:** HRX2 focused validation workflow.
+- **Observed case:** Route slice 33 initially added a frequency-factor ROPE
+  route for NeoX pairing and validated it with synthetic rows. The Llama 3.2
+  Q4_K graph uses the same visible tensor shapes and frequency-factor source,
+  but raw op params show `GGML_ROPE_TYPE_NORMAL`.
+- **Symptom:** The NeoX route passed focused CPU-reference tests for its own
+  synthetic rows but did not move the model scheduler because real model ROPE
+  rows had `mode=0` and were therefore correctly rejected.
+- **Evidence:**
+
+  ```text
+  cache/hrx2/phase1_0/route-slice-33-rope-freq-export-current/llama32-q4k-rope-ops.txt
+  cache/hrx2/phase1_0/route-slice-33-rope-normal-focused-after-family-cleanup
+  ```
+
+- **Impact:** Agents must not author or validate mode-sensitive kernels from
+  shape/type evidence alone. For ROPE, normal and NeoX have identical visible
+  shapes but different pair ownership.
+- **Workaround:** Export exact graph-op rows and replay them with
+  `test-backend-ops --test-file`. Preserve mode in catalog metadata
+  (`supports.mode`) and make route matching filter on the raw op mode.
+- **Owner:** HRX2 validation workflow. A future graph-row reducer should
+  surface semantic op params in fallback summaries for mode-sensitive ops.
+
+## 2026-06-13: AMDGPU path cannot lower `scf.select` in Q6 unpacking
+
+- **Area:** Loom AMDGPU target lowering for scalar/select control forms.
+- **Affected source:** Phase 1 route slice 35
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/mul_mat_q6_k_f32.loom`.
+- **Observed case:** The first Q6 source used `scf.if` to choose the high or
+  low ql nibble based on `part >= 2`. Rewriting it to `scf.select` avoided the
+  original internal error but hit a missing target-low contract.
+- **Symptoms:**
+
+  ```text
+  INTERNAL; AMDGPU branch argument materializer selected for an unsupported type
+  ```
+
+  followed after the `scf.select` rewrite by:
+
+  ```text
+  TARGET/001: target 'amdgpu-rdna3' export 'hrx2_mul_mat_q6_k_f32_static'
+  config 'amdgpu.rdna3.core' has no target-low contract for 'scf.select'
+  ```
+
+- **Impact:** Tiny integer unpack choices inside production kernels should not
+  be spelled as `scf.if` returning an integer or as `scf.select` until this
+  target path is proven fixed. A source can pass `loom-link` and fail only
+  during HRX2 JIT target lowering.
+- **Workaround:** Spell Q6 low-nibble selection as direct packed-bit
+  arithmetic:
+
+  ```text
+  ((ql_byte >> ((part / 2) * 4)) & 0xf)
+  ```
+
+  The branchless source passed focused ggml CPU-reference validation for 10
+  real-trace Q6 rows and emitted clean compile reports.
+- **Evidence:**
+  - Failing `scf.if` run:
+    `cache/hrx2/phase1_0/route-slice-35-q6-focused-current/test.csv`.
+  - Failing `scf.select` run:
+    `cache/hrx2/phase1_0/route-slice-35-q6-focused-current/test-select.csv`.
+  - Passing branchless run:
+    `cache/hrx2/phase1_0/route-slice-35-q6-focused-current/test-branchless.csv`.
+- **Owner:** Loom AMDGPU lowering; HRX2 keeps the branchless source spelling.
+
+## 2026-06-13: AMDGPU path rejects scalar `andi` on predicate values
+
+- **Area:** Loom AMDGPU target lowering for boolean predicate composition.
+- **Affected source:** Phase 1 route slice 38
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/mul_mat_id_q4_k_f32.loom`.
+- **Observed case:** The first Q4_K `MUL_MAT_ID` source combined
+  `expert >= 0` and `expert < nexperts` with scalar boolean `andi` before a
+  guarded store.
+- **Symptom:**
+
+  ```text
+  TARGET/003 ... rejected 'scalar.andi' field 'lhs' ...
+  constraint 'low_register_class.amdgpu.scc' is not satisfied
+  ```
+
+- **Impact:** Predicate composition that looks natural at Loom high level can
+  fail only during target lowering. This is easy to rediscover in boundary
+  checks for ids, tails, and optional stores.
+- **Workaround:** Spell combined predicates as nested `scf.if` regions. Slice
+  38 uses nested expert-valid and lane-zero guards and passes focused
+  CPU-reference validation.
+- **Owner:** Loom AMDGPU lowering. HRX2 authors should preserve the nested
+  control-flow spelling until the boolean lowering path is fixed.
+
+## 2026-06-13: llama.cpp loader probes 512-token weight compatibility
+
+- **Area:** HRX2/llama.cpp integration, not Loom codegen.
+- **Observed case:** Q4_K `MUL_MAT_ID` passed focused `test-backend-ops`
+  validation but Qwen3 model graphs still placed Q4_K matmuls on CPU.
+- **Root cause:** `llama_model_loader::select_weight_buft` checks whether a
+  weight can live in a backend buffer by building a synthetic representative
+  op. For `MUL_MAT` and `MUL_MAT_ID`, the synthetic RHS uses 512 columns or
+  tokens. Routes capped at 64 therefore make the backend reject its own
+  load-bearing weights, even when all real runtime shapes are within the
+  smaller domain.
+- **Evidence:** Before widening, verbose Qwen3 UD-Q4 load showed
+  `CPU_Mapped model buffer size = 16757.27 MiB`,
+  `CPU_REPACK model buffer size = 14429.25 MiB`, and
+  `HRX20 model buffer size = 0.80 MiB`. After widening Q4_K route domains to
+  512, the same load showed `HRX20 model buffer size = 14430.05 MiB` and q4
+  `MUL_MAT_ID` dispatches on HRX20.
+- **Impact:** Focused op tests are insufficient for phase 1. Every
+  load-bearing route must also pass a model-load placement smoke that proves
+  tensors are allocated in HRX2 buffers.
+- **Workaround:** Include the loader's 512-token probe in route domains for
+  quantized matmul-family weights, or change the backend/model-loader contract
+  deliberately. Do not narrow production route metadata below the loader probe
+  just because the current benchmark basket only uses smaller prefill buckets.
+- **Owner:** HRX2 integration workflow. Future catalog authoring should treat
+  load selector compatibility as a required acceptance gate.
+
+## 2026-06-13: AMDGPU path lacks `scalar.tanhf` target-low contract
+
+- **Area:** Loom AMDGPU target math lowering.
+- **Affected source:** Phase 1 route slice 44 GEGLU prototype in
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/swiglu_f32.loom`.
+- **Observed case:** A direct GEGLU spelling using
+  `scalar.geluf<tanh> %x : f32` passed bytecode generation but failed during
+  HRX2 JIT to AMDGPU HSACO.
+- **Symptom:**
+
+  ```text
+  TARGET/001: target 'amdgpu-rdna3' export 'hrx2_geglu_f32_split'
+  config 'amdgpu.rdna3.core' has no target-low contract for 'scalar.tanhf'
+  in '@hrx2_geglu_f32_split'
+  ```
+
+- **Impact:** The high-level GELU op is available, but current AMDGPU lowering
+  can expose an unsupported `scalar.tanhf` after math legalization. This is
+  easy to rediscover for GEGLU and any tanh-family activation.
+- **Workaround:** Spell tanh-GELU through the logistic identity:
+
+  ```text
+  gelu_tanh(x) = x * logistic(2 * sqrt(2/pi) * x * (1 + 0.044715*x*x))
+  ```
+
+  The accepted GEGLU route uses `scalar.logisticf`, passes 15 focused exact
+  graph-op rows including 3 GEGLU rows, and passes the full 33-run basket.
+- **Evidence:**
+  - Failing direct GELU run:
+    `cache/hrx2/phase1_0/route-slice-44-glu-large/test.csv`.
+  - Passing logistic run:
+    `cache/hrx2/phase1_0/route-slice-44-glu-large/test-trace-logistic.csv`.
+  - Route trace:
+    `cache/hrx2/phase1_0/route-slice-44-glu-large/hrx2-logistic.jsonl`.
+- **Owner:** Loom AMDGPU math lowering. HRX2 authors should use the logistic
+  identity until `scalar.geluf<tanh>` lowers directly on AMDGPU.
