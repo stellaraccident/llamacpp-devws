@@ -179,6 +179,40 @@ HRX2 rule:
   measurably faster than the sum of the selected standalone parts on the same
   target and shape bucket.
 
+### Split Versus Packed GLU/SWIGLU
+
+Seen in:
+
+- llama.cpp ggml graph exports for Qwen3 MoE and Llama 3.1 Q8:
+  `cache/hrx2/phase1_0/route-slice-export-20260612-194632/*-ops.txt`
+- HRX2 split SWIGLU route slice:
+  `docs/loom/llamacpp-hrx2-phase1.0-route-slice-15.md`
+
+Pattern:
+
+- llama.cpp can represent SWIGLU either as one packed source where the gate and
+  activation halves are adjacent in `src0`, or as split `src0`/`src1` gate/up
+  tensors with the same output shape.
+- These are different ABI families even when the arithmetic is identical:
+  packed uses two bindings (`src0`, `dst`), split uses three (`src0`, `src1`,
+  `dst`).
+- Split SWIGLU has a simple one-pass standalone kernel: linear element mapping,
+  one x load, one gate load, `siluf`, multiply, and one store.
+
+Search axes:
+
+- packed versus split ABI;
+- same-shape contiguous split tensors versus row/view variants;
+- decode rows, narrow token rows, and MoE route rows;
+- standalone split SWIGLU versus matmul+SWIGLU fusion once producer matmuls are
+  represented.
+
+Notes:
+
+- Full model traces can keep a supported split SWIGLU node on CPU when adjacent
+  matmuls are still CPU-owned. Focused ggml CPU-reference validation is required
+  before rejecting or accepting the route based on model-level dispatch alone.
+
 ### Backend Fusion Selection Is Prior Art Too
 
 Seen in:
@@ -311,6 +345,109 @@ Search axes:
 - Q8 block ownership and `float4` RHS load pattern;
 - scale-load amortization per Q8 block;
 - exact F32 RHS first, then separate packed Q8_1/fusion families.
+
+### CONT / Strided Copy To Contiguous
+
+Seen in:
+
+- ggml CPU reference behavior through `test-backend-ops` CONT cases.
+- HRX2 phase 1 source:
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/cont_f32.loom`
+- Vulkan and other GPU backends route tensor copies through copy-like kernels
+  once layout constraints are known.
+
+Pattern:
+
+- Treat CONT as a real data-movement kernel only when the source layout is
+  row-contiguous enough to prove simple source addressing and the destination
+  is fully contiguous.
+- Preserve source strides as specialization facts. In model traces, the same
+  logical `128`-column CONT appears with different `ne1/ne2` and stride
+  patterns depending on attention head layout.
+- Keep copy kernels narrow and correct first. They may not improve standalone
+  wall time at tiny shapes, but they remove CPU fallback and become necessary
+  prerequisites for attention fusions.
+
+Search axes:
+
+- scalar versus vectorized copy width;
+- linear-element mapping versus row/workgroup mapping;
+- workgroup size 128, 256, 512;
+- exact stride-shape specialization;
+- fusion with adjacent ROPE, SCALE, softmax, or attention layout transforms.
+
+### Standalone GLU / SWIGLU Activation
+
+Seen in:
+
+- CPU GLU implementation:
+  `sources/llama.cpp/ggml/src/ggml-cpu/ops.cpp`
+- Vulkan GLU dispatch and shaders:
+  `sources/llama.cpp/ggml/src/ggml-vulkan/ggml-vulkan.cpp`,
+  `sources/llama.cpp/ggml/src/ggml-vulkan/vulkan-shaders/`
+- OpenCL GLU path:
+  `sources/llama.cpp/ggml/src/ggml-opencl/ggml-opencl.cpp`
+- HRX1 fused SWIGLU matmul families:
+  `sources/llama.cpp/ggml/src/ggml-hrx/kernels/mul_mat_vec_bf16_swiglu.hip.cpp`,
+  `sources/llama.cpp/ggml/src/ggml-hrx/kernels/mul_mat_id_q4_k_swiglu.hip.cpp`
+
+Pattern:
+
+- Plain `GGML_OP_GLU` is an elementwise activation over packed or split gate
+  tensors. The common non-split SWIGLU layout is one source row shaped
+  `[x..., gate...]` and one destination row shaped `[out...]`.
+- Standalone backends generally use a one-pass elementwise kernel with one or
+  more x/gate loads, activation, multiply, and store.
+- The larger wins in old HRX are from fusing the activation with the two
+  producer matmuls, especially MoE/grouped prompt routes. Treat those fused
+  routes as separate candidates after the standalone operation has coverage.
+
+Search axes:
+
+- packed contiguous, split, swapped, and OAI/limit variants as separate route
+  support domains;
+- scalar element-per-lane baseline versus explicit vectorized load/store
+  groupings;
+- row mapping for decode (`nrows=1`), narrow multi-token, and prefill buckets;
+- fusion with `gate` and `up` matmuls, measured against the selected unfused
+  route sum rather than assumed from the standalone activation cost.
+
+HRX2 evidence:
+
+- `swiglu_f32_n8192_r1_wg256` and `swiglu_f32_n8192_r16_wg256` are accepted
+  focused coverage routes for the Phi-4 packed, non-split, non-swapped fallback
+  shapes. The source is target-neutral and has clean compile reports: zero
+  spills, zero private/local memory, 3 global-memory instructions, and 128-156
+  emitted code bytes.
+
+### GET_ROWS / Indexed Row Gather
+
+Seen in:
+
+- ggml CPU reference and `test-backend-ops` GET_ROWS cases.
+- Old HRX and Vulkan-style gather/copy paths that make row index, source
+  stride, and destination stride legality explicit.
+- Rejected HRX2 phase 1 candidate:
+  `cache/hrx2/phase1_0/rejected-get-rows/get_rows_f32.loom`
+
+Pattern:
+
+- Map each destination element to `(column, selected-row, outer dims)`, load a
+  row index, then copy from the indexed source row to the destination layout.
+- Correctness depends on the exact ggml index type and stride semantics; do not
+  silently narrow or assume dense destination layout unless route metadata says
+  so.
+- Dynamic indexed addressing is a likely stress case for Loom address proofs,
+  so keep a small standalone validation source before admitting production
+  routes.
+
+Search axes:
+
+- index type path: i32 direct, i64 direct, or documented low-lane temporary;
+- row width buckets and vector copy width;
+- one-dimensional flat copy versus row-major workgroup mapping;
+- destination contiguous versus strided output;
+- future quantized source row gathers such as `q6_K` embedding rows.
 
 ## Case Study: RMS_NORM F32 Contiguous
 

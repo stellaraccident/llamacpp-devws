@@ -2,6 +2,11 @@
 
 Date: 2026-06-11
 
+Concrete bugs and limitations that affect correctness, measurement, route
+admission, or required workarounds are tracked separately in
+`docs/loom/loom-bugs-limitations.md`. Keep this file for author-facing design
+feedback, diagnostics, ergonomics, and future tool requests.
+
 ## Phase 0 HRX2 Bringup
 
 1. `iree-test-loom` rejects dynamic workgroup counts for HAL actual
@@ -468,3 +473,28 @@ Date: 2026-06-11
     check cases from the production Q8 source for now and relies on separate
     Loom validation plus ggml CPU-reference tests. A fixed strip-check mode
     would let one family file carry both authoring checks and production roots.
+
+## Phase 1.0 Coverage Bringup
+
+1. A first high-level f32 GET_ROWS candidate hit the same broad address-proof
+   family as SET_ROWS, but on an `index.shli` in the load/gather path:
+
+   ```text
+   TARGET/003: target 'amdgpu-rdna3' export 'hrx2_get_rows_f32'
+   config 'amdgpu.rdna3.core' rejected 'index.shli' address-width 'u32'
+   constraint 'amdgpu.address.u32' is not satisfied
+   ```
+
+   The attempted source is preserved at
+   `cache/hrx2/phase1_0/rejected-get-rows/get_rows_f32.loom`. The source
+   already includes many explicit `index.assume` facts around the computed
+   source, index, and destination offsets, so this is a useful concrete case
+   for documenting the intended high-level spelling for ggml gather/copy ops
+   with dynamic row indices.
+
+2. The same GET_ROWS candidate also showed numeric mismatches on some
+   `ncols=256` cases when it reached execution, with errors around `2.0`.
+   That may be a bug in the attempted indexing formula rather than Loom, but it
+   is a reminder that address-lowering fixes are not enough: route admission
+   still needs `test-backend-ops` CPU-reference coverage for every admitted
+   layout.
