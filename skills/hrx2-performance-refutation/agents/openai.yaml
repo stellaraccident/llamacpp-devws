@@ -1,0 +1,4 @@
+interface:
+  display_name: "HRX2 Refutation"
+  short_description: "Find kernel optimization headroom"
+  default_prompt: "Use $hrx2-performance-refutation to challenge an HRX2 Loom route against exact native baselines, prior-art variants, and analytical bounds before deciding whether more optimization is warranted."

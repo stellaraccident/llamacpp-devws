@@ -1,0 +1,92 @@
+kernel.def @q8_0_f32_candidate() {
+  %unit = index.constant 1 : index
+  %row_groups = index.constant 64 : index
+  %cols = index.constant 8 : index
+  %workgroup_size = index.constant 64 : index
+  kernel.launch.config workgroups(%row_groups, %cols, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%src0: buffer, %src1: buffer, %dst: buffer) {
+  %base = index.constant 0 : offset
+  %qk = index.constant 32 : index
+  %block_bytes = index.constant 34 : index
+  %block_f16s = index.constant 17 : index
+  %qs_offset = index.constant 2 : index
+  %k = index.constant 512 : index
+  %rows = index.constant 64 : index
+  %row_group_size = index.constant 1 : index
+  %blocks_per_row = index.constant 16 : index
+  %workgroup_size = index.constant 64 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+
+  %row_group0 = kernel.workgroup.id<x> : index
+  %row_group = index.assume %row_group0 [range(%row_group0, 0, 63)] : index
+  %col0 = kernel.workgroup.id<y> : index
+  %col = index.assume %col0 [range(%col0, 0, 7)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %zero_f32 = scalar.constant 0.0 : f32
+  %row_base_raw = index.mul %row_group, %row_group_size : index
+  %row_base = index.assume %row_base_raw [range(%row_base_raw, 0, 63)] : index
+  %row_0 = index.assume %row_base [range(%row_base, 0, 63)] : index
+  %block_lane = index.rem %lane, %eight : index
+  %block_slot = index.div %lane, %eight : index
+  %in_block_base = index.mul %block_lane, %four : index
+  %block_step = index.div %workgroup_size, %eight : index
+
+  %src0_global = buffer.assume.memory_space<global> %src0 : buffer
+  %src1_global = buffer.assume.memory_space<global> %src1 : buffer
+  %dst_global = buffer.assume.memory_space<global> %dst : buffer
+  %src0_noalias, %src1_noalias, %dst_noalias = buffer.assume.noalias %src0_global, %src1_global, %dst_global : buffer, buffer, buffer
+  %src0_i8_view = buffer.view %src0_noalias[%base] : buffer -> view<34816xi8, #dense>
+  %src0_f16_view = buffer.view %src0_noalias[%base] : buffer -> view<17408xf16, #dense>
+  %src1_view = buffer.view %src1_noalias[%base] : buffer -> view<4096xf32, #dense>
+  %dst_view = buffer.view %dst_noalias[%base] : buffer -> view<512xf32, #dense>
+  %src1_col_base = index.mul %col, %k : index
+  %dst_col_base = index.mul %col, %rows : index
+
+  %row_block_base_0 = index.mul %row_0, %blocks_per_row : index
+  %sum_0 = scf.for %i_0 = [%lane to %k step %workgroup_size](%acc_0 = %zero_f32 : f32) -> (f32) {
+    %block_0 = index.div %i_0, %qk : index
+    %in_block_0 = index.rem %i_0, %qk : index
+    %linear_block_0 = index.add %row_block_base_0, %block_0 : index
+    %block_byte_base_0 = index.mul %linear_block_0, %block_bytes : index
+    %q_byte_base_0 = index.add %block_byte_base_0, %qs_offset : index
+    %q_byte_0 = index.add %q_byte_base_0, %in_block_0 : index
+    %block_f16_base_0 = index.mul %linear_block_0, %block_f16s : index
+    %src1_index_0 = index.add %src1_col_base, %i_0 : index
+    %q_0 = view.load %src0_i8_view[%q_byte_0] : view<34816xi8, #dense> -> i8
+    %d_f16_0 = view.load %src0_f16_view[%block_f16_base_0] : view<17408xf16, #dense> -> f16
+    %rhs_0 = view.load %src1_view[%src1_index_0] : view<4096xf32, #dense> -> f32
+    %q_f32_0 = scalar.sitofp %q_0 : i8 to f32
+    %d_0 = scalar.extf %d_f16_0 : f16 to f32
+    %scaled_0 = scalar.mulf<reassoc|nnan|ninf|nsz> %q_f32_0, %d_0 : f32
+    %product_0 = scalar.mulf<reassoc|nnan|ninf|nsz> %scaled_0, %rhs_0 : f32
+    %next_0 = scalar.addf<reassoc|nnan|ninf|nsz> %acc_0, %product_0 : f32
+    scf.yield %next_0 : f32
+  }
+  %dot_0 = kernel.workgroup.reduce<addf> %sum_0 : f32
+  %dst_index_0 = index.add %dst_col_base, %row_0 : index
+
+  %lane_i32 = index.cast %lane : index to i32
+  %zero_i32 = scalar.constant 0 : i32
+  %is_lane0 = scalar.cmpi eq, %lane_i32, %zero_i32 : i32
+  scf.if %is_lane0 {
+    view.store %dot_0, %dst_view[%dst_index_0] : f32, view<512xf32, #dense>
+  }
+  kernel.return
+}
+
+check.case @case_q8_0_f32_scalar_k512_r64_c8_rpg1_wg64 {
+  %src0 = check.file.read.npy path("../fixtures/q8_src0_k512_r64_c8.npy") : tensor<34816xi8>
+  %src1 = check.file.read.npy path("../fixtures/q8_src1_k512_r64_c8.npy") : tensor<4096xf32>
+  %dst = check.generate.fill value(0.0) : tensor<512xf32>
+  %expected = check.file.read.npy path("../fixtures/q8_expected_k512_r64_c8.npy") : tensor<512xf32>
+  func.call @q8_0_f32_candidate(%src0, %src1, %dst) : (tensor<34816xi8>, tensor<4096xf32>, tensor<512xf32>)
+  check.expect.close actual(%dst) expected(%expected) atol(0.001) rtol(0.001) nan(same) : tensor<512xf32>
+  check.return
+}
+
+check.benchmark<@case_q8_0_f32_scalar_k512_r64_c8_rpg1_wg64> @bench_q8_0_f32_scalar_k512_r64_c8_rpg1_wg64

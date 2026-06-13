@@ -1,0 +1,125 @@
+kernel.def @q8_0_f32_candidate() {
+  %unit = index.constant 1 : index
+  %row_groups = index.constant 64 : index
+  %col_groups = index.constant 8 : index
+  %workgroup_size = index.constant 64 : index
+  kernel.launch.config workgroups(%row_groups, %col_groups, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+} launch(%src0: buffer, %src1: buffer, %dst: buffer) {
+  %base = index.constant 0 : offset
+  %zero_index = index.constant 0 : index
+  %qk = index.constant 32 : index
+  %block_bytes = index.constant 34 : index
+  %block_f16s = index.constant 17 : index
+  %qs_offset = index.constant 2 : index
+  %k = index.constant 512 : index
+  %rows = index.constant 64 : index
+  %row_group_size = index.constant 1 : index
+  %blocks_per_row = index.constant 16 : index
+  %workgroup_size = index.constant 64 : index
+  %one = index.constant 1 : index
+  %two = index.constant 2 : index
+  %three = index.constant 3 : index
+  %four = index.constant 4 : index
+  %eight = index.constant 8 : index
+
+  %col_offset_0 = index.constant 0 : index
+  %row_group0 = kernel.workgroup.id<x> : index
+  %row_group = index.assume %row_group0 [range(%row_group0, 0, 63)] : index
+  %col_group0 = kernel.workgroup.id<y> : index
+  %col_group = index.assume %col_group0 [range(%col_group0, 0, 7)] : index
+  %lane0 = kernel.workitem.id<x> : index
+  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %zero_f32 = scalar.constant 0.0 : f32
+  %zero_f32_0 = scalar.constant 0.0 : f32
+  %shift8 = scalar.constant 8 : i32
+  %shift16 = scalar.constant 16 : i32
+  %shift24 = scalar.constant 24 : i32
+  %row_base_raw = index.mul %row_group, %row_group_size : index
+  %row_base = index.assume %row_base_raw [range(%row_base_raw, 0, 63)] : index
+  %cols_per_group = index.constant 1 : index
+  %col_group_base = index.mul %col_group, %cols_per_group : index
+  %col = index.assume %col_group_base [range(%col_group_base, 0, 7)] : index
+  %row_0 = index.assume %row_base [range(%row_base, 0, 63)] : index
+  %block_lane = index.rem %lane, %eight : index
+  %block_slot = index.div %lane, %eight : index
+  %in_block_base = index.mul %block_lane, %four : index
+  %block_step = index.div %workgroup_size, %eight : index
+
+  %src0_global = buffer.assume.memory_space<global> %src0 : buffer
+  %src1_global = buffer.assume.memory_space<global> %src1 : buffer
+  %dst_global = buffer.assume.memory_space<global> %dst : buffer
+  %src0_noalias, %src1_noalias, %dst_noalias = buffer.assume.noalias %src0_global, %src1_global, %dst_global : buffer, buffer, buffer
+  %src0_i8_view = buffer.view %src0_noalias[%base] : buffer -> view<34816xi8, #dense>
+  %src0_f16_view = buffer.view %src0_noalias[%base] : buffer -> view<17408xf16, #dense>
+  %src1_view = buffer.view %src1_noalias[%base] : buffer -> view<4096xf32, #dense>
+  %dst_view = buffer.view %dst_noalias[%base] : buffer -> view<512xf32, #dense>
+  %src1_col_base = index.mul %col, %k : index
+  %dst_col_base = index.mul %col, %rows : index
+  %row_block_base_0 = index.mul %row_0, %blocks_per_row : index
+  %acc_init_0 = scalar.addf<reassoc|nnan|ninf|nsz> %zero_f32_0, %zero_f32_0 : f32
+  %block_idx_0_0 = index.assume %block_slot [range(%block_slot, 0, 15)] : index
+  %src_base_block_0_0 = index.mul %block_idx_0_0, %qk : index
+  %src_base_0_0 = index.add %src_base_block_0_0, %in_block_base : index
+  %linear_block_0_0 = index.add %row_block_base_0, %block_idx_0_0 : index
+  %block_byte_base_0_0 = index.mul %linear_block_0_0, %block_bytes : index
+  %q_byte_payload_0_0 = index.add %block_byte_base_0_0, %qs_offset : index
+  %q_byte_0_0 = index.add %q_byte_payload_0_0, %in_block_base : index
+  %q_byte_offset_0_0 = index.cast %q_byte_0_0 : index to offset
+  %q_word_view_0_0 = buffer.view %src0_noalias[%q_byte_offset_0_0] : buffer -> view<1xi32, #dense>
+  %q_packed_0_0 = vector.load %q_word_view_0_0[%zero_index] : view<1xi32, #dense> -> vector<1xi32>
+  %q_i32_0_0 = vector.bitunpacks<8> %q_packed_0_0 : vector<1xi32> -> vector<4xi32>
+  %q_f32_0_0 = vector.sitofp %q_i32_0_0 : vector<4xi32> to vector<4xf32>
+  %src1_index_0_0 = index.add %src1_col_base, %src_base_0_0 : index
+  %rhs_0_0 = vector.load %src1_view[%src1_index_0_0] : view<4096xf32, #dense> -> vector<4xf32>
+  %block_f16_base_0_0 = index.mul %linear_block_0_0, %block_f16s : index
+  %d_f16_0_0 = view.load %src0_f16_view[%block_f16_base_0_0] : view<17408xf16, #dense> -> f16
+  %d_0_0 = scalar.extf %d_f16_0_0 : f16 to f32
+  %d_vec_0_0 = vector.splat %d_0_0 : vector<4xf32>
+  %q_scaled_0_0 = vector.mulf<reassoc|nnan|ninf|nsz|contract> %q_f32_0_0, %d_vec_0_0 : vector<4xf32>
+  %next_0_0 = vector.dotf %q_scaled_0_0, %rhs_0_0, %acc_init_0 : vector<4xf32>, vector<4xf32>, f32
+  %block_unroll_step_0_1 = index.constant 8 : index
+  %block_idx_raw_0_1 = index.add %block_slot, %block_unroll_step_0_1 : index
+  %block_idx_0_1 = index.assume %block_idx_raw_0_1 [range(%block_idx_raw_0_1, 0, 15)] : index
+  %src_base_block_0_1 = index.mul %block_idx_0_1, %qk : index
+  %src_base_0_1 = index.add %src_base_block_0_1, %in_block_base : index
+  %linear_block_0_1 = index.add %row_block_base_0, %block_idx_0_1 : index
+  %block_byte_base_0_1 = index.mul %linear_block_0_1, %block_bytes : index
+  %q_byte_payload_0_1 = index.add %block_byte_base_0_1, %qs_offset : index
+  %q_byte_0_1 = index.add %q_byte_payload_0_1, %in_block_base : index
+  %q_byte_offset_0_1 = index.cast %q_byte_0_1 : index to offset
+  %q_word_view_0_1 = buffer.view %src0_noalias[%q_byte_offset_0_1] : buffer -> view<1xi32, #dense>
+  %q_packed_0_1 = vector.load %q_word_view_0_1[%zero_index] : view<1xi32, #dense> -> vector<1xi32>
+  %q_i32_0_1 = vector.bitunpacks<8> %q_packed_0_1 : vector<1xi32> -> vector<4xi32>
+  %q_f32_0_1 = vector.sitofp %q_i32_0_1 : vector<4xi32> to vector<4xf32>
+  %src1_index_0_1 = index.add %src1_col_base, %src_base_0_1 : index
+  %rhs_0_1 = vector.load %src1_view[%src1_index_0_1] : view<4096xf32, #dense> -> vector<4xf32>
+  %block_f16_base_0_1 = index.mul %linear_block_0_1, %block_f16s : index
+  %d_f16_0_1 = view.load %src0_f16_view[%block_f16_base_0_1] : view<17408xf16, #dense> -> f16
+  %d_0_1 = scalar.extf %d_f16_0_1 : f16 to f32
+  %d_vec_0_1 = vector.splat %d_0_1 : vector<4xf32>
+  %q_scaled_0_1 = vector.mulf<reassoc|nnan|ninf|nsz|contract> %q_f32_0_1, %d_vec_0_1 : vector<4xf32>
+  %next_0_1 = vector.dotf %q_scaled_0_1, %rhs_0_1, %next_0_0 : vector<4xf32>, vector<4xf32>, f32
+  %sum_0 = scalar.addf<reassoc|nnan|ninf|nsz> %next_0_1, %zero_f32_0 : f32
+  %dot_0 = kernel.workgroup.reduce<addf> %sum_0 : f32
+  %dst_index_0 = index.add %dst_col_base, %row_0 : index
+
+  %lane_i32 = index.cast %lane : index to i32
+  %zero_i32 = scalar.constant 0 : i32
+  %is_lane0 = scalar.cmpi eq, %lane_i32, %zero_i32 : i32
+  scf.if %is_lane0 {
+    view.store %dot_0, %dst_view[%dst_index_0] : f32, view<512xf32, #dense>
+  }
+  kernel.return
+}
+
+check.case @case_q8_0_f32_word4_bitunpack_unrolled_rhsvec_dotf_k512_r64_c8_rpg1_cpg1_wg64 {
+  %src0 = check.file.read.npy path("../fixtures/q8_src0_k512_r64_c8.npy") : tensor<34816xi8>
+  %src1 = check.file.read.npy path("../fixtures/q8_src1_k512_r64_c8.npy") : tensor<4096xf32>
+  %dst = check.generate.fill value(0.0) : tensor<512xf32>
+  %expected = check.file.read.npy path("../fixtures/q8_expected_k512_r64_c8.npy") : tensor<512xf32>
+  func.call @q8_0_f32_candidate(%src0, %src1, %dst) : (tensor<34816xi8>, tensor<4096xf32>, tensor<512xf32>)
+  check.expect.close actual(%dst) expected(%expected) atol(0.001) rtol(0.001) nan(same) : tensor<512xf32>
+  check.return
+}
+
+check.benchmark<@case_q8_0_f32_word4_bitunpack_unrolled_rhsvec_dotf_k512_r64_c8_rpg1_cpg1_wg64> @bench_q8_0_f32_word4_bitunpack_unrolled_rhsvec_dotf_k512_r64_c8_rpg1_cpg1_wg64

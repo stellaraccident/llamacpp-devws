@@ -1,4 +1,4 @@
 interface:
   display_name: "HRX2 Coverage Audit"
-  short_description: "Find HRX2 model-basket kernel gaps"
-  default_prompt: "Use $hrx2-coverage-audit to run the HRX2 model basket and produce a prioritized missing-kernel backlog."
+  short_description: "Find HRX2 kernel and fusion gaps"
+  default_prompt: "Use $hrx2-coverage-audit to collect model-basket shape evidence and produce a prioritized HRX2 kernel/fusion backlog."

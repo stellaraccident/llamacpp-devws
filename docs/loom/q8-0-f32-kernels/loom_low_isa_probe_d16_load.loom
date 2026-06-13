@@ -1,0 +1,10 @@
+amdgpu.target<gfx1100> @target
+
+low.kernel.def target(@target) workgroup_size(1, 1, 1) @probe_d16_load() asm<amdgpu.rdna3.core> {
+  %input_view = resource<hal_binding> {index = 0, source_type = hal.buffer, extent = 4} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {index = 1, source_type = hal.buffer, extent = 4} : reg<amdgpu.sgpr x2>
+  %zero = v_mov_b32 0
+  %value = global_load_d16_b16_saddr %zero, %input_view
+  global_store_b32_saddr %zero, %value, %output_view
+  return
+}

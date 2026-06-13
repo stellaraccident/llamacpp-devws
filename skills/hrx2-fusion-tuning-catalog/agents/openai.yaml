@@ -1,4 +1,4 @@
 interface:
   display_name: "HRX2 Fusion Tuning"
-  short_description: "Tune HRX2 fusions and catalogs"
-  default_prompt: "Use $hrx2-fusion-tuning-catalog to benchmark HRX2 fusion candidates and emit measured catalog winners."
+  short_description: "Tune HRX2 kernels and catalogs"
+  default_prompt: "Use $hrx2-fusion-tuning-catalog to run tool-driven HRX2 kernel/fusion sweeps, reduce compile-report and latency evidence, and emit measured catalog winners."

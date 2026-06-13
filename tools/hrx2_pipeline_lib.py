@@ -93,6 +93,8 @@ def route_matches_shape(route, shape, target_key=None):
             return False
         if "all_pot" in guards and bool(guards["all_pot"]) != (is_pow2(k) and is_pow2(rows) and is_pow2(cols)):
             return False
+        if "k_multiple_of" in guards and k % int(guards["k_multiple_of"]) != 0:
+            return False
         return True
 
     return False
@@ -116,6 +118,13 @@ def resolve_config_bindings(route, shape):
                 value = str(shape["rows"])
             elif source == "shape.cols":
                 value = str(shape["cols"])
+            elif source == "shape.q8_full_unroll_factor":
+                workgroup_size = int((route.get("dispatch") or {}).get("workgroup_size", [0])[0])
+                block_step = workgroup_size // 8
+                blocks_per_row = int(shape["k"]) // 32
+                if block_step <= 0 or blocks_per_row % block_step != 0:
+                    raise ValueError(f"shape {shape} cannot use full Q8 unroll for {route.get('id')}")
+                value = str(blocks_per_row // block_step)
             else:
                 raise ValueError(f"unsupported config source {source!r} on {route.get('id')}")
         bindings.append({"key": key, "value": value})
