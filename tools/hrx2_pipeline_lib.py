@@ -2,13 +2,14 @@
 import json
 import os
 import re
+import importlib.util
 from pathlib import Path
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 LLAMA_ROOT = WORKSPACE / "sources" / "llama.cpp"
 HRX2_ROOT = LLAMA_ROOT / "ggml" / "src" / "ggml-hrx2"
-DEFAULT_CATALOG = HRX2_ROOT / "catalog.json"
+DEFAULT_CATALOG = HRX2_ROOT / "catalog"
 DEFAULT_SOURCE_ROOT = HRX2_ROOT
 DEFAULT_ARTIFACT_ROOT = WORKSPACE / "build" / "llama-hrx2" / "ggml" / "src" / "ggml-hrx2" / "generated" / "catalog"
 DEFAULT_LLAMA_BUILD = WORKSPACE / "build" / "llama-hrx2"
@@ -17,7 +18,16 @@ DEFAULT_ROCM = WORKSPACE / "rocm"
 
 
 def load_json(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    path = Path(path)
+    if path.is_dir():
+        assembler_path = HRX2_ROOT / "tools" / "assemble_hrx2_catalog.py"
+        spec = importlib.util.spec_from_file_location("hrx2_catalog_assembler", assembler_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"failed to load catalog assembler from {assembler_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.assemble(path)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_json(path, value):

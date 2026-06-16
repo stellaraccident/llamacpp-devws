@@ -23,6 +23,11 @@ Read first:
 
 1. Harvest prior art first from CUDA/HIPified, Vulkan, OpenCL/Metal, old HRX,
    and current HRX2 Loom seeds. Record reusable algorithms in the ledger.
+   Prior search is not complete until the schedule facts are written down:
+   source/symbol, shape regime, tile/workgroup/subgroup shape, lane ownership,
+   per-lane outputs, vector/packed load width, layout, dot/WMMA/ALU primitive,
+   A/B staging, barriers, unroll, reduction/writeback, emitted resource facts,
+   and known win/regression constraints.
 2. Define the family contract: ggml op or fusion, ABI, bindings, constants,
    shape domain, numeric policy, layout/aliasing constraints, and target policy.
 3. Decide target structure before coding:
@@ -58,7 +63,12 @@ Read first:
    rows, memory facts, and instruction mix as decision data.
 12. Run Loom correctness for fast iteration, then focused ggml CPU-reference
    correctness before accepting any route into the HRX2 runtime catalog.
-13. Record accepted and rejected provider/config variants with JSON/JSONL evidence.
+13. Before adding a production catalog row, write the candidate matrix row it
+   came from. Each candidate must name the prior row or analytical schedule it
+   follows, the single pivot axis, sweep bounds, expected signal, correctness
+   gate, timing gate, and decision. Adjacent probes without direct prior
+   evidence are valid only as brackets around an explicit schedule family.
+14. Record accepted and rejected provider/config variants with JSON/JSONL evidence.
 
 ## WYSIWYG Schedule Rules
 
@@ -183,6 +193,11 @@ Loom author feedback, if tool limitations were found
 ## Guardrails
 
 - Do not hand-pick a winner without benchmark evidence.
+- Do not start from a blind schedule guess. Start from a documented prior
+  schedule or an analytical alternative derived from the prior matrix.
+- Do not integrate speculative tile/vector/unroll/staging pivots directly into
+  llama.cpp. Run them as standalone Loom/kernel/backend-op sweeps first, then
+  promote only a measured winner with a clear shape domain.
 - Do not rely on the compiler to infer wide packed loads, dot forms, or tail
   strategies that source/config axes can spell.
 - Do not bury tunable algorithm choices in hard-coded heuristics unless a

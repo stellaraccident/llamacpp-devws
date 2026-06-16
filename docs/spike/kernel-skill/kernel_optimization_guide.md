@@ -44,14 +44,144 @@ Do not mix prompt/prefill and decode conclusions.
    overhead, rocprof kernel-trace SQLite for kernel bucket ranking.
 3. **Pick one hot bucket** with a proven Vulkan/reference gap or graph
    granularity issue.
-4. **Write the smallest exact provider gate** for the target shape.
-5. **Run focused correctness**, then the full Qwen gate before defaulting.
-6. **Measure device time**, not just wall tok/s.
-7. **Inspect ISA/resources** if a change is surprising.
-8. **Use ATT/thread trace** only when source-level structure is no longer
+4. **Mine known priors before coding** when the gap is broad. For HRX2/Loom
+   work this means HRX1 HIP, Vulkan shaders and dispatch, CUDA/HIP MMQ/DMMV,
+   and any relevant OpenCL/Metal kernels. Run or disassemble the prior when
+   possible and extract the real schedule: tile dimensions, lane ownership,
+   vector load width, packed data layout, dot primitive, LDS/shared-memory
+   staging, reduction/writeback structure, and activation constraints.
+5. **Write the schedule ledger.** Prior search is incomplete until the exact
+   schedule facts are recorded in the analysis log or prior-art doc: source
+   path and symbol, shape regime, BM/BN/BK or equivalent tile shape,
+   wave/subgroup width, lane ownership, per-lane output count, vector and
+   packed load width, quant layout, dot primitive, A/B staging, barrier cadence,
+   reduction/writeback policy, emitted resource facts, and any known failure
+   mode. A prior that is only mentioned but not decomposed is not evidence.
+6. **Generate analytical alternatives before coding.** Use the prior ledger to
+   form a short list of schedule hypotheses that preserve known-good dataflow
+   while varying one meaningful axis at a time: tile dimensions, wave32 versus
+   wave64, Q8_1 packing, A-side or B-side staging, vector width, unroll depth,
+   output ownership, tail strategy, or fusion boundary. Do not move directly
+   from "backend X is faster" to a guessed kernel rewrite.
+7. **Bracket adjacent schedules in the kernel loop.** It is valid to probe
+   nearby schedules that do not have strong direct prior evidence, but they
+   must be pivots around a documented schedule family: name the pivot axis,
+   sweep range, and expected signal. Run those variants through focused
+   kernel/backend-op correctness and timing first. Promote to full integration
+   only after the sweep shows a material bucket-level win or a useful
+   refutation.
+8. **Compare emitted code, not just source.** For Loom use compile reports and
+   HSACO disassembly; for Vulkan use generated SPIR-V/disassembly plus perf
+   labels; for HIP/CUDA use object/HSACO/SASS/ISA where available. If HRX2 is
+   orders of magnitude behind, expect an algorithmic schedule mismatch before
+   assuming a compiler/codegen limitation.
+9. **Write the smallest exact provider gate** for the target shape.
+10. **Run focused correctness**, then the full Qwen gate before defaulting.
+11. **Measure device time**, not just wall tok/s.
+12. **Inspect ISA/resources** if a change is surprising.
+13. **Use ATT/thread trace** only when source-level structure is no longer
    enough and the capture can be filtered to one kernel.
-9. **Record rejected variants** with numbers. Many plausible Vulkan-shaped
+14. **Record rejected variants** with numbers. Many plausible Vulkan-shaped
    changes regressed.
+
+Do not iterate on local knobs when the candidate is not in the same schedule
+family as a known-good prior. First port the missing schedule class, then tune.
+Once the schedule family is grounded, bracket nearby variants with a controlled
+kernel benchmark sweep instead of scattered full-model probes.
+
+### HRX2 Phase 2a boulder rule
+
+For the current HRX2/Loom throughput lift, Vulkan is the same-machine baseline
+and the target basket lives under `shared/models/llamacpp-hrx2-basket-v1`.
+When HRX2 is still far behind Vulkan, treat the problem as structural until
+proven otherwise. Own the full stack needed to prove that: environment, build
+state, stale kernel caches, benchmark harness, route metadata, runtime interop,
+and model-shape evidence are all part of the optimization task.
+
+Current Phase 2a evidence puts decode at roughly 0.23x-0.38x Vulkan with no CPU
+compute fallback, while prefill remains about 0.015x-0.05x Vulkan. Do not spend
+multi-hour loops on tiny knobs in that state. First rule out the big classes:
+unsupported route domains, CPU fallback, graph materialization/copy traffic,
+missing HRX1 runtime behavior, weak packed quantized matmul schedules, missing
+attention/fusion paths, and measurement artifacts.
+
+Before coding a large kernel rewrite, produce a prior matrix from HRX1, Vulkan,
+CUDA/HIP, and any relevant backend: exact source/symbol, shape regime, tile
+sizes, lane ownership, per-lane output count, vector load width, packing
+format, dot primitive, LDS/shared-memory staging, reduction and writeback
+strategy, barriers, and emitted ISA/resource facts. Then add an analytical
+alternatives table derived from that matrix. Each candidate should say which
+prior it follows, which axis it changes, and what outcome would confirm or
+refute the hypothesis. Only then implement the missing schedule class in Loom
+or as a bridge with explicit WYSIWYG vectorization and validate it with focused
+backend op tests before model benchmarks.
+
+For the current prefill gap, prefer one well-grounded boulder at a time over a
+large scatter of speculative tweaks. A pass is not complete until it has either
+moved the relevant bucket materially, or produced a concrete refutation: the
+Loom source matches the prior schedule, the emitted ISA/resource facts have
+been compared, focused op tests pass, and the remaining delta is narrowed to a
+specific compiler/runtime/measurement hypothesis.
+
+When the current candidate is far from target, schedule guessing is a failure
+mode. If a candidate cannot point to a prior ledger row or a derived analytical
+alternative, stop and do that research first. The correct output of prior
+search is a reusable schedule-shape document, not just a vague assertion that
+another backend "does MMQ" or "uses wave64."
+
+This does not forbid exploratory pivots. It forbids blind pivots. A nearby
+schedule can be worth testing even when no prior says it will win, provided it
+is framed as a bracket around the schedule being pursued. For example, after
+selecting a Vulkan-style packed-MMQ schedule, it is reasonable to sweep BN, BK
+step, A/B staging choice, vector load width, and unroll depth around that
+schedule. The sweep should run as a kernel or focused backend-op benchmark with
+correctness gates and route traces, producing a compact table that either
+selects a variant or rejects the axis. Only then should the variant move to
+llama-bench or chat/integration testing.
+
+### Schedule ledger and pivot protocol
+
+For every broad kernel gap, create or update a short ledger before code
+changes. The ledger is the contract that separates useful exploration from
+blind guessing:
+
+```text
+Prior row:
+- source/symbol/backend:
+- shape regime and evidence artifact:
+- tile/workgroup/subgroup:
+- lane ownership and per-lane outputs:
+- vector/packed load widths:
+- quant or element layout:
+- dot/WMMA/ALU primitive and signedness:
+- A/B staging, barriers, unroll, reduction, writeback:
+- emitted resource facts:
+- known win/regression/constraint:
+
+Candidate row:
+- follows prior row:
+- pivot axis:
+- sweep range:
+- expected signal:
+- correctness gate:
+- timing gate:
+- decision:
+```
+
+Adjacent schedules can lack a direct prior only when they are written as a
+candidate row that pivots around an existing prior row or an explicitly chosen
+analytical schedule. Examples: BM64 versus BM128 around the same MMQ dataflow;
+BK_STEP 1/2/4/8 around the same cooperative staging pattern; vector load width
+4/8/16 around the same packed layout; tail strategy variants for the same
+ownership map. These should be benchmark-sweep inputs, not one-off integrated
+routes or production-catalog entries.
+
+Do not use full model runs to discover whether a speculative tile, vector
+width, unroll, or staging axis is promising. First run the focused kernel or
+backend-op sweep and record route selection, correctness, device timing, compile
+report deltas, and emitted ISA/resource facts. Move the winning variant into
+the llama.cpp production catalog only after it has bucket-level evidence and a
+clear shape domain.
 
 ### Decode grind loop that held up
 

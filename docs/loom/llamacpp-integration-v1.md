@@ -184,7 +184,7 @@ Use an isomorphic dev and production representation:
 
 ```text
 dev catalog directory
-  catalog.json
+  catalog/
   families/*.json
   targets/*.json
   evidence/*.jsonl

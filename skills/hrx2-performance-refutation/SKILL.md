@@ -25,6 +25,10 @@ Read first:
 2. Build independent exact-semantics references first. Prefer native HIP C++
    transliterations of old HRX, CUDA/HIPified, Vulkan, OpenCL, or Metal
    algorithms with the same ABI, layout, fixtures, and output semantics.
+   Decompose each reference into a schedule row before changing Loom source:
+   tile/workgroup/subgroup shape, lane ownership, per-lane outputs, vector or
+   packed load width, layout, dot/WMMA/ALU primitive, A/B staging, barriers,
+   unroll, reduction/writeback, and emitted resource facts.
 3. Benchmark with deterministic non-constant fixtures and the same shape basket
    as the Loom sweep. The basket must include at least one representative
    large-enough shape whose median device time is comfortably above profiler
@@ -67,9 +71,14 @@ Read first:
 7. Probe storage-changing, approximate, or fused algorithms separately. A win
    there opens a new route family or fusion candidate; it does not refute the
    standalone exact route.
-8. Use analytical lower bounds only as sanity checks: bytes moved, ops,
+8. Probe adjacent schedules only as brackets around a documented schedule row
+   or analytical model. State the pivot axis, sweep bounds, and expected signal
+   before coding, run the variants in the kernel/common-runner/backend-op
+   benchmark loop, and keep them out of full llama.cpp integration until the
+   focused sweep selects a useful winner.
+9. Use analytical lower bounds only as sanity checks: bytes moved, ops,
    dispatch floor, occupancy, register pressure, spills, and memory coalescing.
-9. Record reusable algorithm lessons in the prior-art ledger and write a
+10. Record reusable algorithm lessons in the prior-art ledger and write a
    family-specific refutation report.
 
 ## WYSIWYG Refutation Loop
@@ -94,6 +103,10 @@ Likewise, do not make portable source target-specific just to reproduce a
 measured target route. Target-specific source is reserved for real target-only
 primitives or layouts; otherwise the refutation should manipulate source/config
 axes and let metadata select target winners.
+Do not respond to a refuted route with blind schedule guessing. The next
+candidate must either match a reference schedule more faithfully or bracket one
+explicit axis around that reference schedule; the first measurement should be a
+kernel/backend-op sweep, not a production catalog integration.
 
 Current Q8_0/F32 lesson: on the updated Stella branch, high-level Loom can emit
 the important packed/mixed inner sequence (`global_load_b32`,
@@ -135,6 +148,8 @@ next Loom axes to implement
 
 - Do not compare exact Loom kernels against approximate or packed-RHS kernels
   as if they had the same contract.
+- Do not call "prior art" useful until its schedule has been decomposed enough
+  to seed a concrete Loom/source axis.
 - Do not compare host dispatch timing against device kernel timing as a
   performance conclusion. Keep the timing domain in every table.
 - Do not use IREE/HAL benchmark timing as the sole refutation evidence for

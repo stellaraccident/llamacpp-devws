@@ -21,12 +21,18 @@ Read first:
 
 ## Workflow
 
-1. Build a candidate matrix from declared family/provider/config axes. Include
-   algorithm families that spell different machine schedules, not just numeric
-   constants: vector width, load width, tile ownership, scale reuse, packed dot
-   form, LDS staging, reduction strategy, and tail policy. Also include natural
-   shape regimes: decode, narrow multi-token, prompt buckets, odd/tail,
-   power-of-two, and common model hidden sizes.
+1. Build a candidate matrix from prior-ledger rows and declared
+   family/provider/config axes. Include algorithm families that spell different
+   machine schedules, not just numeric constants: vector width, load width,
+   tile ownership, scale reuse, packed dot form, LDS staging, reduction
+   strategy, and tail policy. Also include natural shape regimes: decode,
+   narrow multi-token, prompt buckets, odd/tail, power-of-two, and common model
+   hidden sizes.
+   Each row must say which prior or analytical schedule it follows. For
+   adjacent probes without strong direct evidence, name the pivot axis, sweep
+   bounds, and expected signal. Useful examples are BN/BK brackets around one
+   packed-MMQ dataflow, vector-width brackets around one packed layout, or
+   unroll-depth brackets around one static loop structure.
 2. Tune one root/candidate per artifact by default, keyed by source hash, root,
    config, target key, target variant if present, pass program, ABI, and Loom version.
    Keep source portability separate from route applicability: portable Loom
@@ -48,13 +54,17 @@ Read first:
    exact shape is itself the production bucket. Preserve raw exact-shape rows in
    evidence JSON/JSONL; emit catalog JSON with shape domains, guards, config
    sources, target key, and evidence phase.
-8. Materialize accepted standalone routes into the HRX2 catalog, then run
+8. Reject speculative pivots before integration unless the focused sweep shows
+   a material bucket-level win or a useful refutation. Full model runs are the
+   acceptance path for measured winners, not the first filter for blind
+   schedule exploration.
+9. Materialize accepted standalone routes into the HRX2 catalog, then run
    focused ggml CPU-reference tests. Loom-only correctness is not sufficient.
-9. For each fusion, benchmark the fused candidate and the selected measured
+10. For each fusion, benchmark the fused candidate and the selected measured
    unfused parts under the same target, shape, benchmark method, and data fixtures.
-10. Accept a fusion only when it is at least 3% faster at p50 and stable enough
+11. Accept a fusion only when it is at least 3% faster at p50 and stable enough
    that p90/p50 spread does not hide the win.
-11. Emit catalog input JSON rows for accepted winners and retain rejected
+12. Emit catalog input JSON rows for accepted winners and retain rejected
    evidence outside the runtime catalog.
 
 ## Output
@@ -77,6 +87,11 @@ ggml CPU-reference validation trace
 - Do not add kernel-specific tuner scripts to llama.cpp. Production code gets
   generic catalog/runtime/embed/validation tools; family-specific exploration
   scripts belong in the workspace or cache.
+- Do not populate the candidate matrix with blind guesses. Every candidate must
+  either follow a documented prior schedule or bracket one axis around such a
+  schedule with a stated expected signal.
+- Do not promote a bracketed schedule pivot into the production catalog until a
+  focused kernel/backend-op sweep has selected it.
 - Do not make broad sweeps over source that does not encode the intended
   schedule. Loom generally emits what the source says; a scalar loop is not a
   request for packed vector loads.

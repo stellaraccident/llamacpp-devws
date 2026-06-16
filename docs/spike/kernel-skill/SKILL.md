@@ -26,6 +26,56 @@ This skill is an entrypoint. Load only the reference file needed for the task:
   kernel decision.
 - Treat D2D copies, `CPY`/`CONT`/`CONCAT`, and CPU fallbacks as blockers until
   explained.
+- When isolating backend behavior, run focused backend op unit tests before
+  full integration/model tests. Use integration tests after the op-level path is
+  understood, not as the first debugging boundary.
+- For Loom kernels, treat the source as WYSIWYG. Explicitly encode vector
+  widths, packed load widths, tile shapes, address-range assumptions, and dot
+  forms; do not expect the compiler to infer those choices from scalar-looking
+  code. Use compile reports and ISA/resource checks to verify the spelling.
+- Spell packed integer dot signedness from the mathematical data, not from the
+  storage type. Q4_K codes are unsigned 4-bit values widened into i8 lanes and
+  Q8_1 activations are signed i8 values, so Q4_K x Q8_1 dot products should be
+  `vector.dot4i<u8s8>`. `s8s8` may compile and may be arithmetically identical
+  for 0..15 inputs, but it is the wrong WYSIWYG contract and can select the
+  wrong target form.
+- For broad performance cliffs, especially prompt matmul, packed quantization,
+  attention, and fusions, do prior-driven engineering before local tuning. Mine
+  HRX1, Vulkan, CUDA/HIP, and other backend kernels; run, disassemble, or
+  compile them when possible; compare actual schedule facts against the Loom
+  candidate; then implement the missing algorithmic class. Do not burn time on
+  knob tweaks when the current kernel is not in the same schedule family as a
+  known-good prior.
+- Prior search must leave a written schedule ledger before coding: source path
+  or symbol, tile shape, wave/subgroup shape, lane ownership, per-lane outputs,
+  vector/load widths, packed layout, dot primitive, staging/barriers, reduction
+  and writeback policy, resource/ISA facts, and the shape regime where it won.
+  A prior is not "used" until those facts are compared against the current
+  candidate and the comparison is recorded.
+- Before inventing a new schedule, generate analytical alternatives from the
+  prior matrix: preserve the winning dataflow but vary one meaningful axis at a
+  time, such as BM/BN/BK, WG size, wave32/wave64, vector width, Q8 packing,
+  A/B staging, unroll depth, output ownership, or tail strategy. Do not jump
+  from "Vulkan is faster" to a guessed Loom rewrite without this comparison.
+- Adjacent schedule probes are allowed and useful, including probes without
+  strong direct evidence, but only as bracketing around a documented schedule
+  family. Define the pivot axis, bounds, and expected signal before coding,
+  then run those variants in a focused kernel or backend-op benchmark sweep.
+  Do not use full model integration runs as the first screen for speculative
+  tile/vector/unroll variants, and do not promote them into the production
+  catalog until the sweep selects a useful winner. Exploration is a kernel
+  benchmark activity first; integration is the acceptance path after the sweep
+  has produced evidence.
+- For HRX2 prefill gaps of many multiples, aim at broad structural misses first.
+  A useful kernel pass should be able to say which prior schedule it is
+  matching, which emitted ISA/resource facts agree or differ, and what evidence
+  remains if performance still does not move. Wall tok/s alone is not enough
+  for that judgment.
+- In the HRX2 Phase 2a goal loop, environmental failures are owned by the
+  implementing agent. Fix stale builds, bad cache state, missing env wiring,
+  benchmark harness issues, and runtime interop regressions before escalating.
+  HRX1 runtime behavior is a primary reference for stream/submission/copy
+  semantics.
 - Before default-enabling a provider, run focused correctness and the full Qwen
   gate.
 - For approximate prompt kernels, require rollback env vars, chat/loop guards,
@@ -44,17 +94,27 @@ This skill is an entrypoint. Load only the reference file needed for the task:
 2. Rank kernel families with `iree-profile dispatch --format=jsonl` grouped by
    export name.
 3. Pick one hot family and one regime: prefill or decode.
-4. Read the matching section in `kernel_optimization_guide.md`.
-5. If the task involves wavefront size, WMMA, dot, LDS, or spills, read
+4. Read the matching section in `kernel_optimization_guide.md` and the
+   reusable prior-art ledger.
+5. If the gap is large, produce a prior matrix before coding: backend/source,
+   tile shape, lane ownership, per-lane outputs, vector/dot primitive, staging,
+   packing, barriers, reduction and writeback policy, activation constraints,
+   shape regime, and any ISA/resource evidence.
+6. From that matrix, write the short list of analytical schedule alternatives
+   to test and why each differs from the priors. Each implementation attempt
+   should correspond to one row in that list, not to an ungrounded guess.
+7. If the task involves wavefront size, WMMA, dot, LDS, or spills, read
    `amd_rdna3_wavefront_isa_gotchas.md`.
-6. Implement a narrow provider or source change with an opt-out or opt-in knob.
-7. Run inner-loop correctness:
+8. Implement a narrow provider or source change with an opt-out or opt-in knob.
+9. Run focused backend op/unit correctness for the touched route before any
+   model-level integration test.
+10. Run inner-loop correctness:
    `reproducers/qwen_hrx_inner_loop.sh`.
-8. Capture Tracy plus `.ireeprof`; compare dispatch counts, export route, and
+11. Capture Tracy plus `.ireeprof`; compare dispatch counts, export route, and
    dispatch time buckets before attributing a regression to a kernel.
-9. Run the full milestone gate before promotion:
+12. Run the full milestone gate before promotion:
    `reproducers/qwen_hrx_correctness_gate.sh`.
-10. Record accepted and rejected results in the analysis log.
+13. Record accepted and rejected results in the analysis log.
 
 ## Quick Commands
 
@@ -167,6 +227,88 @@ reproducers/qwen_hrx_correctness_gate.sh
   the same route, reject the change until the discrepancy is explained.
 
 ## Current Known Priorities
+
+### HRX2 Phase 2a checkpoint
+
+For the current HRX2/Loom work in `sources/llama.cpp`, use Vulkan on the same
+machine as the throughput baseline and `shared/models/llamacpp-hrx2-basket-v1`
+as the model basket. The fresh reduced baseline artifact after the accepted F16
+batched-attention route and accepted Phi V-cache `CONT_SET_ROWS` fusion is:
+
+```text
+cache/hrx2/phase2a/current-reduced-after-cont-setrows-20260615-235800/
+```
+
+Decode is currently about 0.33x-0.39x Vulkan with zero CPU compute fallback.
+Prefill is still the bulk blocker at about 0.016x-0.05x Vulkan. Treat this as a
+structural problem until evidence says otherwise. The current top boulders are:
+
+- Q4_K prompt matmul schedule.
+- Q5/Q6 prompt matmul routes.
+- Attention-chain/fusion candidates.
+
+The F16 batched-attention cols8 route is already committed in llama.cpp at
+`37d5417ab hrx2: add p512 f16 attention cols8 route`. It is deliberately
+limited to the c512/p512 domain because p64/narrow prompt smoke regressed.
+Treat it as a small accepted lift, not as the remaining bulk prefill answer.
+
+The Phi V-cache `CONT -> SET_ROWS` fusion is already committed in llama.cpp at
+`bf1c90d8d hrx2: fuse cont into v-cache set rows`. It adds route
+`cont_set_rows_f32_f16_n128_wg256`, trace op `CONT_SET_ROWS`, and rollback
+`GGML_HRX2_DISABLE_CONT_SET_ROWS_FUSION=1`. Same-binary A/B improved Phi
+prefill by about 2-3% and reduced dispatch count, so treat it as accepted. Do
+not remove its large-KV guard (`set_rows.ne1 > 1048576`) without widening and
+testing the Loom config ranges; a default-cache CLI smoke previously exposed a
+provider config failure for huge `SET_ROWS` shapes.
+
+The Q4_K Q8_1/x4 MMQ path is opt-in and correctness-failing. The latest
+narrowing removed NaNs by making Q8_1 `d/s` metadata single-writer and f32 in
+LDS, but the route still fails focused Q4_K rows with finite mismatch around
+`ERR ~= 1.0`. The non-x4 Q8_1 cols4 route passes the same rows, so do not blame
+the generic Q4_K/Q8_1 plumbing. Do not benchmark or promote x4 until focused
+`test-backend-ops` rows pass. The next serious Q4_K attempt should be a clean
+HRX1/Vulkan-style tiled MMQ schedule with packed Q8_1 RHS, cooperative A/B
+staging, dot4 inner loops, and multi-output lane ownership, or a tiny
+diagnostic consumer that precisely proves the current x4 layout bug.
+
+For the current HRX2 Phase 2a prefill gap, use the fresh reduced basket
+artifact `cache/hrx2/phase2a/current-reduced-after-cont-setrows-20260615-235800/`
+as the recent checkpoint. Decode is roughly one third of Vulkan with no CPU
+compute fallback, while prefill is still only about 0.016x-0.05x Vulkan and the
+final stream sync is carrying real device work. This means kernel/fusion
+quality is the broad issue, not just launch overhead. Prioritize Q4_K prompt
+matmul, Q5/Q6 prompt matmuls, and attention-chain/fusion candidates. For each
+candidate, first extract a known-good schedule from HRX1, Vulkan, CUDA/HIP, or
+emitted ISA; then spell the missing vector widths, load widths, dot forms,
+staging, tile shape, unroll policy, and bounds handling in Loom.
+
+The latest fresh reduced rerun is
+`cache/hrx2/phase2a/current-reduced-20260616-000512/`. It reconfirmed zero CPU
+compute fallback, decode around one third of Vulkan, and prefill around
+0.016x-0.05x Vulkan. If this differs from a newer artifact, prefer the newer
+same-run HRX2/Vulkan basket and update this note.
+
+Current next boulders: Q4_K/Q5_K/Q6_K prompt matmul quality and attention-chain
+fusions. For Q4_K, use either a standalone Loom/low-level integer-LDS
+reproducer for the Loom author, or a different staging spelling that can match
+the HRX1/Vulkan tiled packed-MMQ schedule. Do not continue local knob sweeps on
+the known BM64/BN8 Loom source until the integer-LDS correctness issue is
+explained.
+
+For attention-chain work, remember that the current basket baseline uses
+`--flash-attn 0` and therefore exposes unfused KQ matmul, SOFT_MAX, and KQV
+matmul routes. Before writing another small attention matmul tweak, check
+whether a `fa1-prefill-probe-*` artifact exists and compare HRX2/Vulkan
+`--flash-attn 1` behavior. If Vulkan moves to a much better flash-attention path
+while HRX2 falls back or stays unfused, the right boulder is HRX2
+`GGML_OP_FLASH_ATTN_EXT` support or an equivalent fusion, starting from HRX1
+flash-attention kernels and Vulkan flash-attention shaders.
+
+When adding prompt-specialized routes, keep the shape domain tight until the
+data proves it generalizes. The F16 batched attention cols8 route is a current
+example: c512 backend-op gates passed and p512 smoke improved modestly, but
+p64 smoke regressed, so the route must stay p512/cols512-only unless further
+tuning produces a separate narrow-shape route.
 
 After the April 21 decode-final grind, the best current W7900/Qwen decode
 candidate is around the 115 tok/s target in untraced release runs, with

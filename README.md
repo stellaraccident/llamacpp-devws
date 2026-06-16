@@ -9,7 +9,7 @@ repositories.
 
 ```text
 sources/
-  llama.cpp/    ROCm llama.cpp checkout, branch hrx-integration
+  llama.cpp/    ROCm llama.cpp checkout, branch hrx-v2 for active HRX2 work
   hrx-system/   HRX runtime checkout, branch main
 build/          local build trees and install trees
 cache/          local caches and profiling scratch
@@ -29,18 +29,18 @@ Pick a local install location outside this repository. For example:
 
 ```bash
 export ROCM_INSTALL_ROOT="$HOME/opt/rocm"
-export ROCM_INSTALL="$ROCM_INSTALL_ROOT/rocm-7.14.0a20260610"
+export ROCM_INSTALL="/srv/vm-shared/shared/rocm-7.14.0a20260527"
 mkdir -p "$ROCM_INSTALL"
 ```
 
 Download the Linux tarball that matches your GPU target, such as
-`therock-dist-linux-gfx1151-7.14.0a20260610.tar.gz` for `gfx1151`, then unpack
+`therock-dist-linux-gfx1151-7.14.0a20260527.tar.gz` for `gfx1151`, then unpack
 it into the chosen install directory:
 
 ```bash
 cd "$ROCM_INSTALL_ROOT"
-curl -LO "https://rocm.nightlies.amd.com/tarball/therock-dist-linux-<gfx-target>-7.14.0a20260610.tar.gz"
-tar -xzf "therock-dist-linux-<gfx-target>-7.14.0a20260610.tar.gz" -C "$ROCM_INSTALL"
+curl -LO "https://rocm.nightlies.amd.com/tarball/therock-dist-linux-<gfx-target>-7.14.0a20260527.tar.gz"
+tar -xzf "therock-dist-linux-<gfx-target>-7.14.0a20260527.tar.gz" -C "$ROCM_INSTALL"
 test -x "$ROCM_INSTALL/bin/amdclang++"
 ```
 
@@ -58,7 +58,7 @@ The bootstrap creates required directories, creates or verifies the `rocm`
 symlink, and clones:
 
 - `https://github.com/ROCm/hrx-system.git` on `main`
-- `https://github.com/ROCm/llama.cpp.git` on `hrx-integration`
+- `https://github.com/ROCm/llama.cpp.git` on the active HRX2 branch
 
 It refuses to overwrite dirty or mismatched existing checkouts.
 

@@ -20,9 +20,20 @@ For every new standalone op or fusion:
 2. Extract algorithmic ideas, not syntax: dataflow, work partitioning,
    vectorization, staging, reduction structure, launch shape, fusion boundary,
    and activation constraints.
-3. Convert those ideas into Loom tuning axes or explicit rejected candidates.
-4. Record the result back in this ledger when the idea is reusable across ops,
+3. When the performance gap is broad, verify the prior mechanically where
+   possible. Build or locate the generated artifact, disassemble SPIR-V/HSACO
+   or inspect compile reports/resource summaries, and compare the emitted
+   schedule against the current Loom candidate before writing a replacement.
+4. Convert those ideas into Loom tuning axes or explicit rejected candidates.
+5. Record the result back in this ledger when the idea is reusable across ops,
    and in the per-op report when it is local to one op.
+
+For packed matmul and attention work, a useful prior extraction table must name
+the tile dimensions, workgroup/wave size, lane-to-output mapping, vector or
+packed load widths, LDS/shared-memory layout, dot primitive, reduction/writeback
+policy, route activation constraints, and any ISA/resource facts. If HRX2 is
+far behind Vulkan/CUDA/HRX1, assume the first failure mode is that the Loom
+kernel is spelling the wrong schedule class until this table proves otherwise.
 
 ## Backend Search Roots
 
@@ -1110,6 +1121,106 @@ Reusable conclusions:
   `nrows=1..64`, while preserving exact activation selection in metadata.
 - Focused `test-backend-ops` must include exact exported rows for each
   activation variant. A SWIGLU pass says nothing about GEGLU correctness.
+
+### Q4_K Prompt Matmul Column Reuse
+
+Seen in:
+
+- HRX2 Phase 2a Q4_K cols4 route:
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/mul_mat_q4_k_f32.loom`
+- Vulkan prior art: `mul_mmq.comp` and Q8_1 RHS quantization route.
+- Old HRX1 prior art: Q4_K direct Q8_1 RHS route plus x4/MMQ-style routes for
+  other K-quants.
+
+Pattern:
+
+- A direct one-output-per-workgroup Q4_K x F32 RHS route repeats the same
+  Q4_K scale/min unpack and dequantization once for every prompt column.
+- Computing four RHS columns in one workgroup reuses that dequantized Q4_K
+  value across four accumulators. On the W7900 Phase 2a basket this improved
+  Q4_K prefill from roughly 24-59 tok/s to roughly 32-81 tok/s, depending on
+  model and prompt bucket.
+- This is still an intermediate route. It keeps F32 RHS traffic and does not
+  implement the Vulkan/HRX1 packed RHS strategy.
+
+Reusable conclusions:
+
+- When a K-quant prompt route still uses direct F32 RHS and one output per
+  workgroup, first ask whether the quantized LHS work is being repeated across
+  prompt columns. A cols4/cols8 direct route can be a useful proof and a
+  moderate lift.
+- For production-level prefill throughput, treat packed RHS as the target:
+  quantize/pack RHS to Q8_1 scratch, then run an MMQ-class tiled Q4_K x Q8_1
+  kernel. Direct cols4 is not enough to close an order-of-magnitude gap to
+  Vulkan.
+- Q4_K x Q8_1 dot signedness is unsigned-by-signed: Q4 codes are unsigned
+  4-bit values and Q8_1 activations are signed i8 values. In Loom, spell this
+  as `vector.dot4i<u8s8>`, not `s8s8`, even when a scalar-looking expansion
+  happens to be numerically equivalent for Q4 values in 0..15.
+- If a route schedule assumes a column tile, encode that in metadata. HRX2 now
+  supports `shape_guards.cols_multiple_of`; use it instead of relying on
+  speculative JIT fallback or in-kernel tail checks.
+- Separate packed-layout validation from MMQ schedule validation. A temporary
+  HRX2 direct Q4_K x packed-Q8_1-x4 cols4 consumer passed the same focused
+  backend-op rows that the 32x32 MMQ route failed:
+  `cache/hrx2/phase2a/q4k-x4-direct-cols4-wg256-diag-20260615-222302/`.
+  This proves the x4 packer/layout can feed a correct Q4_K consumer, but it is
+  not a throughput candidate. Use this pattern to isolate layout bugs, then
+  delete or keep the probe out of production selection so it cannot shadow the
+  real tiled route.
+
+### K-Quant x Q8_1 Prompt MMQ32x32
+
+Seen in:
+
+- HRX1 HIP Q6_K prior:
+  `sources/llama.cpp/ggml/src/ggml-hrx/kernels/mul_mat_vec_q6_k_q8_1.hip.cpp`,
+  export `hrx_mul_mat_vec_q6_k_q8_1_x4_mmq32x32_wg128_f32`.
+- HRX1 HIP Q5_K prior:
+  `sources/llama.cpp/ggml/src/ggml-hrx/kernels/mul_mat_vec_q5_k_q8_1.hip.cpp`,
+  exports `hrx_mul_mat_vec_q5_k_q8_1_mmq32x32_wg128_f32` and
+  `hrx_mul_mat_vec_q5_k_q8_1_x4_mmq32x32_wg128_f32`.
+- HRX2 Loom Q6_K accepted port:
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/mul_mat_q6_k_f32.loom`,
+  export `hrx2_mul_mat_q6_k_q8_1_x4_mmq32x32_static`.
+
+Pattern:
+
+- Use a 32 row x 32 column prompt tile with 128 lanes.
+- `tid & 31` owns one output row within the tile.
+- `tid >> 5` selects one of four column groups; each lane accumulates eight
+  output columns.
+- For every Q8_1 block along K, cooperatively load the 32 column x 8 packed
+  Q8_1 RHS words into workgroup memory. Q6_K only needs Q8 `d`; Q5_K also
+  needs Q8 `s` for min correction.
+- Each lane loads the current row's K-quant block, unpacks eight groups of four
+  quantized values, uses explicit packed dot4 operations against the staged RHS
+  words, applies per-group K-quant scale and Q8 scale, and writes eight F32
+  outputs.
+
+Reusable conclusions:
+
+- This schedule class is the right first refutation target when a prompt
+  K-quant route is one-row/one-column or one-row/four-column direct. Direct
+  routes repeatedly decode the same K-quant row for each prompt column; the
+  32x32 MMQ tile amortizes that decode across eight columns per lane and shares
+  the RHS tile across 32 rows.
+- Do not collapse this to a generic one-column WG32 diagnostic. In Phase 2a,
+  a correctness-clean Q6_K generic-Q8 WG32 route was slower than the existing
+  x4 direct route for prompt rows. The useful prior is the tiled x4 MMQ shape.
+- In Loom, spell the schedule WYSIWYG: `cols_multiple_of: 32`, workgroup size
+  128, RHS LDS tile shape 256 i32 words, workgroup barriers around the tile,
+  explicit packed load width, explicit `vector.dot4i<s8s8>` for Q6_K x Q8_1,
+  and full unroll of the eight Q8 groups.
+- Validate block-index math carefully. The Q6_K source block is
+  `row * blocks_per_row + (kb / 8)`, where `kb` iterates over 32-element Q8_1
+  blocks. Using `(row * blocks_per_row + kb) / 8` silently selects the wrong
+  source block and produces finite but incorrect results.
+- Backend-op wins do not guarantee full-model wins. The accepted Q6_K Loom
+  port improved model-derived p512 Q6 rows by 3-4x, but the reduced model
+  basket barely moved because Q4_K, Q5_K, pointwise chains, and attention were
+  still larger boulders. Always follow focused gates with a reduced model
+  HRX2/Vulkan run and route histogram.
 
 ## Open Items For Future Entries
 

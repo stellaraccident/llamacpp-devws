@@ -10,6 +10,13 @@ metadata:
 This document is written for future agents working specifically in
 `sources/llama.cpp` on `ggml-hrx`.
 
+Current HRX2/Loom work is in the same checkout on branch `hrx-v2`, with build
+directory `build/llama-hrx2` and model basket
+`shared/models/llamacpp-hrx2-basket-v1`. For HRX2 Phase 2a, treat the HRX1
+sections below as runtime/provider prior art, not literal command defaults.
+Use `AGENTS.md`, `docs/loom/llamacpp-hrx2-phase2a-report.md`, and
+`tools/hrx2_phase2a_benchmark.py` for the active flow.
+
 Use it with:
 
 - `docs/spike/kernel-skill/kernel_optimization_guide.md`
@@ -192,6 +199,20 @@ state row directly. The experimental provider is gated by
 movement savings beat the extra addressing cost. The default-on optimization is
 only to skip zero-element `SCALE` submissions, which is dispatch cleanup rather
 than semantic fusion.
+
+### Prior-Grounded Schedule Probing
+
+When a kernel bucket is still far from the Vulkan/HRX1/CUDA prior, schedule
+exploration is allowed but must be bounded. Start from a documented prior row
+or an analytical variant of that row, then define the pivot axis before coding:
+tile size, wave width, vector load width, Q8 packing, A/B staging, unroll depth,
+tail strategy, or output ownership. Adjacent variants may lack strong direct
+evidence; they are still valid probes when they bracket the schedule being
+pursued instead of replacing it with an unrelated guess. Run these variants as
+a focused kernel/backend-op correctness and timing sweep with route traces. Do
+not add a speculative variant to the production catalog or judge it through
+full `llama-bench` first unless the kernel sweep shows a material win or a
+useful refutation.
 
 ## C. Benchmark Shapes
 
@@ -448,6 +469,12 @@ sources/llama.cpp/tools/hrx-epic2/hrx-att-summary.py \
 
 ## E. Correctness Workflow
 
+Always start isolation at the backend op boundary. Run focused
+`test-backend-ops` or backend-specific unit tests for the exact op/route before
+trying to explain behavior through full integration or model tests. Model tests
+are still required for acceptance, but they are too wide as the first debugging
+boundary.
+
 ### Fast focused loop
 
 Generate graph op files if missing:
@@ -509,6 +536,79 @@ still need:
 - loop guard;
 - rollback env var;
 - no decode regression.
+
+### Loom WYSIWYG authoring rule
+
+For HRX2 Loom kernels, assume the compiler emits what the source says rather
+than discovering the intended GPU schedule. When a route depends on wide vector
+loads, packed RHS layout, integer-dot width, tile reuse, unroll depth, or
+address-range facts, spell those choices directly in Loom source and route
+metadata. Then verify the result with the Loom compile report, artifact
+manifest, and ISA/resource facts before accepting the route.
+
+For large route gaps, WYSIWYG also applies to the optimization plan. Before
+editing a Loom or bridge kernel, write the schedule-shape ledger for the priors
+you intend to use:
+
+- backend, source path, symbol/shader/pipeline, and measured shape regime;
+- BM/BN/BK or equivalent tile dimensions and workgroup/subgroup size;
+- lane ownership, per-lane output count, and tail strategy;
+- vector and packed load widths for A, B, scales, and metadata;
+- quant layout, dot primitive, signedness, and accumulator type;
+- A/B staging, barrier cadence, unroll policy, reduction, and writeback;
+- emitted resource facts: wave mode, VGPR/SGPR, spills, LDS, dot/WMMA opcodes;
+- known wins, regressions, and shape constraints.
+
+Then write an analytical alternatives table before coding. Each candidate must
+say which prior row it follows and which axis it changes: tile shape, wave
+mode, Q8_1 packing, A-side staging, B-side staging, vector width, BK_STEP,
+output ownership, unroll depth, or fusion boundary. If a proposed kernel cannot
+be traced to a prior row or a deliberate analytical variation, it is schedule
+guessing and should not be implemented for Phase 2a-scale gaps.
+
+Deliberate analytical variation includes adjacent probes. A fresh agent may
+try nearby tile/vector/unroll/staging schedules without direct prior evidence
+when they bracket a documented schedule family and the pivot is explicit. The
+right vehicle is a focused kernel/backend-op sweep with correctness, route
+selection, device timing, and compile-report/ISA summaries. Do not use full
+integration benchmarks as the first filter for these probes; run model-level
+tests only after a sweep shows a material bucket-level win or narrows the
+remaining hypothesis. Keep these probes as scratch/sweep candidates until that
+decision is made; do not add them as default production routes first.
+
+Use this minimal candidate record for those probes:
+
+```text
+candidate:
+  follows_prior:
+  pivot_axis:
+  sweep_values:
+  expected_signal:
+  focused_correctness_artifact:
+  focused_timing_artifact:
+  route_histogram:
+  compile_report_or_isa_delta:
+  decision:
+```
+
+If a candidate cannot fill `follows_prior`, it is not an adjacent probe. Stop
+and add prior evidence or analytical reasoning before writing production code.
+Keep unproven variants in scratch or disabled catalog entries; do not let them
+shadow accepted routes during model-level comparisons.
+
+Specific Q8_1 lesson from Phase 2a: F32-to-Q8_1 conversion is only useful when
+the paired matmul reuses the packed RHS enough to pay for the extra dispatch
+and scratch traffic. The direct Q4_K x Q8_1 prompt route validated the runtime
+backplane but regressed Llama 3.2 3B p64 from about 77 tok/s to 69 tok/s versus
+the accepted F32-RHS cols4 route. Use Q8_1 for real packed/MMQ schedules, not
+as a one-for-one replacement for direct scalar-looking matmul.
+
+Packed dot signedness is part of the WYSIWYG contract. Q4_K codes are unsigned
+4-bit values widened into i8 lanes, while Q8_1 activations are signed i8
+values, so Q4_K x Q8_1 dot products should be spelled
+`vector.dot4i<u8s8>`. A `s8s8` spelling may compile and may be numerically
+equivalent for 0..15 Q4 codes, but it asks Loom for the wrong target operation
+and is not an acceptable base for future packed kernels.
 
 ### Long-generation loop guard
 
@@ -660,6 +760,14 @@ Do not blindly port:
 - source loop order that triggers worse HIP codegen;
 - one-row DMMV to prompt shapes where large MMQ is already better;
 - wave64 into kernels whose HIP schedule is wave32-friendly.
+
+Adjacent schedule probes are still useful, even without direct prior evidence,
+but they must bracket a schedule family already under investigation. Before
+coding the probe, write down the pivot axis, sweep bounds, and expected signal.
+Screen those variants with focused kernel or backend-op correctness and timing
+first; only promote a winner into the production catalog and full integration
+benchmarks. This keeps exploration available while avoiding blind one-off
+schedule guesses.
 
 ## I. Common Failure Modes
 

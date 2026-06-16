@@ -126,7 +126,7 @@ Catalog and artifact validation:
 
 ```bash
 python3 sources/llama.cpp/ggml/src/ggml-hrx2/tools/validate_hrx2_catalog.py \
-  --catalog sources/llama.cpp/ggml/src/ggml-hrx2/catalog.json \
+  --catalog build/llama-hrx2/ggml/src/ggml-hrx2/generated/catalog.json \
   --source-root sources/llama.cpp/ggml/src/ggml-hrx2 \
   --artifact-root build/llama-hrx2/ggml/src/ggml-hrx2/generated/catalog \
   --require-artifacts
