@@ -159,6 +159,21 @@ def row_for_regime(rows: list[dict[str, Any]], prompt: int, gen: int) -> dict[st
     return rows[-1] if rows else None
 
 
+def sample_summary(bench: dict[str, Any]) -> dict[str, Any]:
+    samples_ts = [float(v) for v in bench.get("samples_ts") or []]
+    samples_ns = [int(v) for v in bench.get("samples_ns") or []]
+    steady_ts = sum(samples_ts[1:]) / len(samples_ts[1:]) if len(samples_ts) > 1 else (samples_ts[0] if samples_ts else None)
+    steady_ns = int(sum(samples_ns[1:]) / len(samples_ns[1:])) if len(samples_ns) > 1 else (samples_ns[0] if samples_ns else None)
+    return {
+        "samples_ts": samples_ts,
+        "samples_ns": samples_ns,
+        "cold_ts": samples_ts[0] if samples_ts else None,
+        "cold_ns": samples_ns[0] if samples_ns else None,
+        "steady_ts": steady_ts,
+        "steady_ns": steady_ns,
+    }
+
+
 def run_one(args: argparse.Namespace, backend: str, model_name: str, model_path: Path, case: tuple[str, int, int, int, int], root: Path) -> dict[str, Any]:
     case_name, prompt, gen, batch, ubatch = case
     run_dir = root / backend / model_name / case_name
@@ -215,9 +230,22 @@ def run_one(args: argparse.Namespace, backend: str, model_name: str, model_path:
             "avg_ns": bench.get("avg_ns"),
             "bench_rows": len(rows),
         })
+        record.update(sample_summary(bench))
     if backend == "hrx2":
         record.update(reduce_hrx2(run_dir))
     return record
+
+
+def fmt_float(value: Any, digits: int = 3) -> str:
+    if value is None:
+        return ""
+    return f"{float(value):.{digits}f}"
+
+
+def fmt_samples(values: Any) -> str:
+    if not values:
+        return ""
+    return ", ".join(fmt_float(value, 1) for value in values)
 
 
 def write_report(root: Path, records: list[dict[str, Any]]) -> None:
@@ -227,8 +255,8 @@ def write_report(root: Path, records: list[dict[str, Any]]) -> None:
     lines = [
         "# HRX2 Phase 2a Baseline",
         "",
-        "| Model | Case | HRX2 tok/s | Vulkan tok/s | HRX2/Vulkan | HRX2 dispatches | CPU compute | Top blocker |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Model | Case | HRX2 avg tok/s | Vulkan avg tok/s | Avg ratio | HRX2 steady tok/s | Vulkan steady tok/s | Steady ratio | HRX2 cold tok/s | Vulkan cold tok/s | HRX2 samples tok/s | Vulkan samples tok/s | HRX2 dispatches | CPU compute | Top blocker |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | --- |",
     ]
     for (model, case), backends in sorted(by_key.items()):
         hrx = backends.get("hrx2", {})
@@ -236,12 +264,18 @@ def write_report(root: Path, records: list[dict[str, Any]]) -> None:
         hrx_ts = float(hrx.get("avg_ts") or 0.0)
         vk_ts = float(vk.get("avg_ts") or 0.0)
         ratio = hrx_ts / vk_ts if vk_ts else 0.0
+        hrx_steady = float(hrx.get("steady_ts") or 0.0)
+        vk_steady = float(vk.get("steady_ts") or 0.0)
+        steady_ratio = hrx_steady / vk_steady if vk_steady else 0.0
         top = ""
         routes = hrx.get("hrx2_top_routes") or []
         if routes:
             top = f"{routes[0]['route_id']} x{routes[0]['count']}"
         lines.append(
             f"| `{model}` | `{case}` | {hrx_ts:.3f} | {vk_ts:.3f} | {ratio:.4f} | "
+            f"{fmt_float(hrx.get('steady_ts'))} | {fmt_float(vk.get('steady_ts'))} | {steady_ratio:.4f} | "
+            f"{fmt_float(hrx.get('cold_ts'))} | {fmt_float(vk.get('cold_ts'))} | "
+            f"`{fmt_samples(hrx.get('samples_ts'))}` | `{fmt_samples(vk.get('samples_ts'))}` | "
             f"{int(hrx.get('hrx2_dispatches') or 0)} | {int(hrx.get('sched_cpu_compute_nodes') or 0)} | `{top}` |"
         )
     root.joinpath("summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

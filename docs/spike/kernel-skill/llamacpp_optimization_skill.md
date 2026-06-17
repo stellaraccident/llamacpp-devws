@@ -546,6 +546,32 @@ address-range facts, spell those choices directly in Loom source and route
 metadata. Then verify the result with the Loom compile report, artifact
 manifest, and ISA/resource facts before accepting the route.
 
+Before promoting a route, fill in the candidate gate. If any line is empty, the
+change is still exploratory and must stay scratch, opt-in, or disabled:
+
+```markdown
+### Candidate Gate
+
+- Production target:
+- Baseline command:
+- Variant command:
+- Same-runner comparison method:
+- Route trace path:
+- Scheduler/per-op trace path:
+- Focused CPU-reference command:
+- Compile report path:
+- Target listing path:
+- Prior-art schedule source:
+- Promotion rule:
+```
+
+The intended evidence order is production row, same-runner baseline, selected
+route trace, scheduler/profile boulder ranking, prior-art schedule table,
+source that expresses that schedule, compile report/listing confirmation,
+focused CPU-reference gate, then same-binary model/op A/B. Passing focused
+correctness or improving standalone Loom timing is not enough to default-enable
+a llama.cpp route.
+
 For large route gaps, WYSIWYG also applies to the optimization plan. Before
 editing a Loom or bridge kernel, write the schedule-shape ledger for the priors
 you intend to use:

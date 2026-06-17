@@ -85,11 +85,12 @@ workflow.
 
 ## Invocation Style
 
-When working inside the source tree, the wrapper form builds the tool and keeps
-the command root-relative:
+In this workspace, use the normal CMake install tree for Loom tools. If the
+tools are not already on `PATH`, call them through `build/hrx-install/bin` from
+the workspace root:
 
 ```bash
-python dev.py bazel run //loom/src/loom/tools/loom-compile:loom-compile -- \
+build/hrx-install/bin/loom-compile \
   path/to/kernel.loom \
   --help
 ```
@@ -227,14 +228,13 @@ Common authoring features:
 The authoring corpus is the best first reference:
 
 ```bash
-python dev.py bazel test \
-  //loom/src/loom/test/corpus/authoring:ffn_gate_up_swiglu_q6q8_plan_test \
-  //loom/src/loom/test/corpus/authoring:mlp_down_projection_residual_bf16_plan_test
+cmake --build build/hrx-system --target test -j"$(nproc)"
 ```
 
-Use the checked corpus when validating tools and local setup. Commands below
-that mention `q4_moe_swiglu` describe the HRX family shape to build; commands
-that mention `memset_i8` are copy-paste smoke tests against checked source.
+Use checked corpus sources and installed tools when validating local setup.
+Commands below that mention `q4_moe_swiglu` describe the HRX family shape to
+build; commands that mention `memset_i8` are copy-paste smoke tests against
+checked source.
 
 ## Format And Package Source
 
@@ -284,18 +284,18 @@ selected providers, compile an exact executable, and cache the result.
 Runnable packaging smoke over the checked `memset_i8` source:
 
 ```bash
-python dev.py bazel run //loom/src/loom/tools/loom-format:loom-format -- \
+build/hrx-install/bin/loom-format \
   loom/src/loom/test/corpus/authoring/memset_i8.loom \
   --from=auto \
   --to=bytecode \
   --output=/tmp/loom-hrx-memset_i8.loombc
 
-python dev.py bazel run //loom/src/loom/tools/loom-link:loom-link -- \
+build/hrx-install/bin/loom-link \
   /tmp/loom-hrx-memset_i8.loombc \
   --from=auto \
   --list-symbols
 
-python dev.py bazel run //loom/src/loom/tools/loom-link:loom-link -- \
+build/hrx-install/bin/loom-link \
   /tmp/loom-hrx-memset_i8.loombc \
   --from=auto \
   --root=@memset_i8 \
@@ -434,7 +434,7 @@ event ordinal without scraping a terminal transcript.
 Runnable bytecode-to-HSACO smoke with a compile report and trace bundle:
 
 ```bash
-python dev.py bazel run //loom/src/loom/tools/loom-compile:loom-compile -- \
+build/hrx-install/bin/loom-compile \
   /tmp/loom-hrx-memset_i8.linked.loombc \
   --backend=amdgpu-hal \
   --target=gfx1100 \

@@ -11,6 +11,41 @@ catalog, invalidates benchmark evidence, blocks a kernel source from compiling,
 or requires a runtime workaround. Do not bury those items in the general author
 feedback log.
 
+## 2026-06-16: Q6_K p64 cols64 needs prior-matched HIP staging; Loom MMQ64x32 is not the reference optimum
+
+- **Area:** HRX2 Q6_K prompt matmul schedule selection.
+- **Affected sources:**
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/mul_mat_q6_k_f32.loom`,
+  `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/hip/mul_mat_vec_q6_k_q8_1_wave64.hip.cpp`,
+  and `sources/llama.cpp/ggml/src/ggml-hrx2/catalog/routes/mul_mat_q6_k_f32.json`.
+- **Observed case:** Llama 3.2 3B Q4_K_M p64 Q6_K prompt rows
+  `k3072 rows1024 cols64` and `k8192 rows3072 cols64`.
+- **Symptom:** The existing Loom `q8_1_x4_mmq64x32` route remained much slower
+  than the Vulkan target and was also slower than a prior-matched HIP bridge on
+  the large Q6 cols64 row. A naive Q6 wave32 port with `BK_STEP=1` regressed the
+  small-row case:
+
+  ```text
+  k3072 rows1024 cols64: Loom 178.834 us, wave32 BK1 206.558 us
+  k8192 rows3072 cols64: Loom 561.460 us, wave32 BK4 336.034 us
+  ```
+
+- **Impact:** Future Q6 prompt work should not use the current Loom
+  `mmq64x32` route as the presumed schedule optimum for cols64 p64 shapes. The
+  working prior is the packed Q8_1-x4 MMQ schedule with wave32 BM64/BN64 and
+  `BK_STEP=4` staging. This is a schedule-authoring limitation, not a confirmed
+  Loom compiler defect.
+- **Workaround/current policy:** Keep the accepted narrow HIP bridge for the
+  two p64 cols64 Q6 rows. If a Loom version is authored later, it must spell the
+  same staging, wave/tile ownership, packed load widths, and dot form before
+  comparing performance.
+- **Evidence:**
+  - Focused op gate:
+    `cache/hrx2/phase2a/q6-w32-vkm64x64-opgate-20260616-140920/`.
+  - Reduced basket:
+    `cache/hrx2/phase2a/q6-w32-vkm64x64-reduced-20260616-141320/`.
+- **Owner:** HRX2 llama.cpp route work.
+
 ## 2026-06-16: High-level Q4_K BK_STEP4 spelling compiled and passed but regressed
 
 - **Area:** HRX2/Loom prompt MMQ authoring methodology.
@@ -2742,3 +2777,65 @@ Decision: reject and remove the route. The p64 huge-output win is too narrow to
 justify a production-catalog entry while p512 regresses the dominant output
 projection rows. Keep the current `BM64/BN128` Q6 bridge. Future Q6 work needs a
 new prior or deeper schedule change, not this adjacent pivot.
+
+## Q4_K Pack2 BK_STEP4 Is A Schedule Refutation, Not A Loom Bug
+
+- **Status:** Rejected HRX2 Phase 2a schedule pivot.
+- **Date:** 2026-06-16.
+- **Artifact:** `cache/hrx2/phase2a/q4-pack2-bkstep4-opgate-20260616-122640/`.
+- **Finding:** An opt-in HIP bridge variant kept the accepted Q4_K
+  BM64/BN32 wave64 pack2 topology but staged four Q8 blocks per barrier to
+  bracket the Vulkan `BK_STEP=4` prior. The route selected with no
+  provider-unavailable events and passed p64 backend-op correctness, but p64
+  focused timings regressed about `5.8x-11.8x` versus the accepted pack2 route.
+- **Conclusion:** Do not report this as a Loom limitation. `BK_STEP=4` is not
+  profitable inside the current single-wave BM64/BN32 pack2 dataflow. Future
+  Q4_K work should move to a genuinely different Vulkan-style tile/ownership
+  family if pursuing the remaining gap.
+
+## Backend Library Contamination Can Invalidate HRX2/Vulkan Comparisons
+
+- **Status:** Benchmark harness limitation, not a Loom compiler bug.
+- **Date:** 2026-06-16.
+- **Invalid artifact:**
+  `cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/`.
+- **Finding:** A one-off repeated prefill runner appeared to show HRX2 and
+  Vulkan at parity, but the saved `bench.json` files under the `vulkan/`
+  directory report `backends=HRX2`. The runner used a mixed `LD_LIBRARY_PATH`
+  with HRX2 libraries before Vulkan libraries, so the comparison was not
+  apples-to-apples.
+- **Current control:** Use `tools/hrx2_phase2a_benchmark.py`, which sets
+  backend-specific library paths and now reports cold and steady-state samples.
+  Verify `backends` in every `llama-bench` JSON before using a run for KPI
+  decisions.
+
+## HIP Wave32 Flag And Broad-Wave32 Q4 Scope
+
+- **Status:** Build/tooling note plus schedule-scoping limitation.
+- **Date:** 2026-06-16.
+- **Finding:** ROCm clang in this workspace accepts `-mwavefrontsize64` for
+  wave64 and `-mno-wavefrontsize64` for wave32. It rejects
+  `-mwavefrontsize32`.
+- **Evidence:** The accepted HRX2 Q4_K narrow wave32 HIP bridge artifact
+  `mul_mat_vec_q4_k_q8_1_wave32.hsaco` reports `.wavefront_size: 32` for
+  `hrx2_mul_mat_vec_q4_k_q8_1_x4_vkm64x64_pack2_wg128_w32_u32`.
+- **Schedule lesson:** The broad wave32 version of the Vulkan-medium Q4_K tile
+  improved p64 focused rows but regressed most p512 rows and some model shapes.
+  It became profitable only after route metadata narrowed it to proven cols64
+  domains. Do not treat wave32 as a blanket fix; preserve wavefront size as a
+  tunable schedule axis and promote only shape domains that win.
+
+## Generic Loom Q5_K MMQ32x32 Is Not The Reference p64 Schedule
+
+- **Status:** HRX2 route quality limitation, not a confirmed Loom compiler bug.
+- **Date:** 2026-06-16.
+- **Evidence:** `cache/hrx2/phase2a/q5-w32-vkm64x64-perf-20260616-142752/`.
+- **Finding:** On the Phi p64 hot Q5 row (`k3072 rows5120 cols64`), the generic
+  Loom `mul_mat_q5_k_q8_1_x4_mmq32x32...` route measured `310.158 us`, while a
+  prior-led HIP bridge spelling the Vulkan/HRX1 packed-Q8_1-x4 wave32
+  `BM64/BN64` schedule measured `194.608 us` and passed CPU-reference backend
+  op testing.
+- **Conclusion:** For Q5 cols64 prompt rows, future Loom work should not start
+  from the generic `mmq32x32` route as though it were near-optimal. Use the
+  accepted wave32 schedule as the reference dataflow and compare emitted
+  compile reports/ISA if rewriting it in Loom.

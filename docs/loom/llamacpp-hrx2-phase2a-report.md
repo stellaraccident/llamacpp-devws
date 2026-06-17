@@ -4681,3 +4681,590 @@ should not retry this axis inside the same tile/dataflow. The next Q4 schedule
 probe needs a genuinely different Vulkan-style ownership/tile family, such as
 BM128/BN64 or BM128/BN128 with WMITER-style pressure control, and should again
 start as a backend-op sweep rather than model integration.
+
+## Repeated Prefill Measurement Control
+
+Date: 2026-06-16.
+
+After `RMS_NORM_MUL` became default, the reduced same-machine one-shot run
+still showed p64 behind Vulkan:
+`cache/hrx2/phase2a/rms-norm-mul-default-reduced-20260616-121223/`.
+
+The trace counters did not support a pure device-kernel explanation for that
+p64 wall-time gap: HRX2 provider traces summed only a few milliseconds of
+dispatch/flush/sync events while `llama-bench` reported roughly 150 ms for the
+first p64 sample. A repeated same-process control was run for HRX2 and Vulkan:
+
+Artifact:
+`cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/`.
+
+Command shape:
+`llama-bench -p {64,512} -n 0 -b 512 -ub 512 -fa 0 -r 3 --no-warmup`.
+
+| Backend | Model | p | Samples tok/s | Steady tok/s |
+| --- | --- | ---: | --- | ---: |
+| HRX2 | Llama 3.2 3B Q4_K_M | 64 | `429.9, 1225.7, 1233.8` | `1229.8` |
+| Vulkan | Llama 3.2 3B Q4_K_M | 64 | `421.6, 1228.4, 1233.9` | `1231.2` |
+| HRX2 | Llama 3.2 3B Q4_K_M | 512 | `2695.8, 3333.7, 3051.0` | `3192.3` |
+| Vulkan | Llama 3.2 3B Q4_K_M | 512 | `2694.5, 3355.9, 3112.5` | `3234.2` |
+| HRX2 | Phi-4 mini Q4_K_M | 64 | `430.8, 1239.7, 1268.1` | `1253.9` |
+| Vulkan | Phi-4 mini Q4_K_M | 64 | `429.9, 1242.5, 1270.8` | `1256.7` |
+| HRX2 | Phi-4 mini Q4_K_M | 512 | `2404.7, 2964.5, 2594.7` | `2779.6` |
+| Vulkan | Phi-4 mini Q4_K_M | 512 | `2409.5, 2896.5, 2611.3` | `2753.9` |
+
+Steady-state HRX2/Vulkan ratios for this reduced prefill smoke are:
+
+| Model | p64 | p512 |
+| --- | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | `0.999x` | `0.987x` |
+| Phi-4 mini Q4_K_M | `0.998x` | `1.009x` |
+
+Decision update: reject this artifact for HRX2/Vulkan KPI comparisons. The
+"Vulkan" `bench.json` rows in
+`cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/` report
+`backends=HRX2`, so the apparent parity was caused by backend/library
+contamination in the one-off runner. The reusable Phase 2a harness was updated
+to report cold and steady-state samples, and later runs use backend-specific
+library paths. Future Phase 2a dashboards must verify `backends` in
+`llama-bench` JSON before drawing conclusions.
+
+This does not invalidate prior-driven kernel work. It changes how to screen new
+schedule ideas: bracket adjacent tile/vector/unroll/staging pivots in focused
+backend-op sweeps first, then run repeated same-run HRX2/Vulkan model baskets
+only after the sweep shows a material bucket-level win.
+
+## Accepted Q4_K Vulkan-Medium HIP Bridge Pivot
+
+Date: 2026-06-16.
+
+The corrected repeated default-three run showed that p64 remained below the
+Phase 2a target after the accepted Q4 pack2 route:
+`cache/hrx2/phase2a/repeated-prefill-default3-20260616-123611/`.
+
+Steady-state HRX2/Vulkan before this pivot:
+
+| Model | p64 | p512 |
+| --- | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | `0.3959x` | `0.5182x` |
+| Phi-4 mini Q4_K_M | `0.4547x` | `0.5082x` |
+| Llama 3.1 8B Q4_K_M | `0.3928x` | `0.4311x` |
+
+Provider traces had zero CPU compute fallback. The top HRX2 route family for
+Llama/Q4 rows was still the accepted
+`mul_mat_q4_k_q8_1_x4_hip_mmql64x32_pack2...`; Phi also showed many
+`quantize_q8_1_x4_f32_generic_wg128` dispatches.
+
+The next bracketed schedule pivot followed the Vulkan medium K-quant integer
+MMQ tuple visible in `ggml-vulkan.cpp` for AMD/RADV:
+
+- `BLOCK_SIZE=128`
+- `BM=64`
+- `BN=64`
+- `WM=64`
+- `WN=32`
+- `WMITER=1`
+- `TM=2`
+- `TN=2`
+- `WARP=64`
+
+The implementation keeps the accepted pack2 Q4 A-cache, packed Q8_1/x4 RHS
+layout, LDS staging, and `sudot4` dot form, but uses two logical wave64 tiles
+per workgroup to cover a 64-column output tile. Route:
+`mul_mat_q4_k_q8_1_x4_hip_vkm64x64_pack2_gfx1100_k256_32768_r64_32768_c64_512_wg128`.
+Export:
+`hrx2_mul_mat_vec_q4_k_q8_1_x4_vkm64x64_pack2_wg128_u32`.
+Rollback:
+`GGML_HRX2_DISABLE_Q4_HIP_VKM64X64_PROMPT=1`.
+
+Focused opt-in backend-op gate:
+`cache/hrx2/phase2a/q4-vkm64x64-opgate-20260616-124259/`.
+
+The candidate passed p64 and p512 CPU-reference rows, selected for the Q4
+prompt rows, and had zero provider-unavailable events. Prompt Q4 rows versus
+the accepted pack2 route:
+
+| Shape row | Pack2 | VKM64x64 | Change |
+| --- | ---: | ---: | ---: |
+| p64 `k3072 rows1024 cols64` | `205.017 us` | `173.800 us` | `1.18x` |
+| p64 `k3072 rows3072 cols64` | `174.571 us` | `140.197 us` | `1.25x` |
+| p64 `k8192 rows3072 cols64` | `433.550 us` | `362.168 us` | `1.20x` |
+| p64 `k3072 rows8192 cols64` | `226.010 us` | `201.065 us` | `1.12x` |
+| p512 `k3072 rows1024 cols512` | `209.235 us` | `194.114 us` | `1.08x` |
+| p512 `k3072 rows3072 cols512` | `380.140 us` | `372.289 us` | `1.02x` |
+| p512 `k8192 rows3072 cols512` | `1029.052 us` | `999.300 us` | `1.03x` |
+| p512 `k3072 rows8192 cols512` | `1172.242 us` | `1016.750 us` | `1.15x` |
+
+HRX2-only model smoke with the route enabled:
+`cache/hrx2/phase2a/q4-vkm64x64-hrx2-smoke-20260616-124520/`.
+
+| Model | Case | Pack2 steady | VKM64x64 steady | Change |
+| --- | ---: | ---: | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | p64 | `1251.080` | `1396.695` | `1.116x` |
+| Llama 3.2 3B Q4_K_M | p512 | `3190.215` | `3606.395` | `1.131x` |
+| Phi-4 mini Q4_K_M | p64 | `1272.090` | `1395.295` | `1.097x` |
+| Phi-4 mini Q4_K_M | p512 | `2754.630` | `3210.550` | `1.166x` |
+| Llama 3.1 8B Q4_K_M | p64 | `679.352` | `767.805` | `1.130x` |
+| Llama 3.1 8B Q4_K_M | p512 | `1149.180` | `1416.060` | `1.232x` |
+
+Default route-selection gate after changing the route from opt-in to
+default-on:
+`cache/hrx2/phase2a/q4-vkm64x64-default-opgate-20260616-124657/`.
+All p64/p512 focused rows passed, the new route selected by default, and
+provider-unavailable remained zero.
+
+Reduced same-machine HRX2/Vulkan rerun:
+`cache/hrx2/phase2a/q4-vkm64x64-default-reduced-20260616-124844/`.
+
+| Model | Case | HRX2 steady | Vulkan steady | HRX2/Vulkan | CPU compute |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | p64 | `1396.955` | `3135.370` | `0.4455` | 0 |
+| Llama 3.2 3B Q4_K_M | p512 | `3565.295` | `5858.440` | `0.6086` | 0 |
+| Phi-4 mini Q4_K_M | p64 | `1356.755` | `2718.435` | `0.4991` | 0 |
+| Phi-4 mini Q4_K_M | p512 | `3078.145` | `5170.735` | `0.5953` | 0 |
+| Llama 3.1 8B Q4_K_M | p64 | `761.497` | `1540.455` | `0.4943` | 0 |
+| Llama 3.1 8B Q4_K_M | p512 | `1391.015` | `2608.720` | `0.5332` | 0 |
+
+Decision: accept and default-enable. This is a prior-led schedule pivot, not a
+blind tile guess, and it improves all focused Q4 rows plus all six repeated
+model rows. It brings p512 above the Phase 2a target and puts Phi/8B p64 at the
+target edge, but Llama 3.2 3B p64 remains below target. The next p64 boulder is
+not this exact axis again; route traces now put the remaining work at Q4 prompt
+matmul quality plus Q8_1 x4 quantize/reuse and residual launch-heavy ADD/fusion
+traffic.
+
+### Accepted Q4_K Vulkan-Medium Wave32 Cols64 Narrow Pivot
+
+Date: 2026-06-16.
+
+The previous default VKM64x64 bridge still left p64 below or at the Phase 2a
+target. A prior-led bracket tested the same Vulkan-medium K-quant tile as a
+true wave32 HIP image instead of the earlier wave64 adaptation:
+
+- `BLOCK_SIZE=128`
+- `BM=64`
+- `BN=64`
+- `WM=32`
+- `WN=32`
+- `WMITER=1`
+- `TM=2`
+- `TN=2`
+- `WARP=32`
+
+The HIP compiler flag for wave32 on this ROCm clang is
+`-mno-wavefrontsize64`; `-mwavefrontsize32` is not accepted. HSACO metadata for
+`hrx2_mul_mat_vec_q4_k_q8_1_x4_vkm64x64_pack2_wg128_w32_u32` confirms
+`.wavefront_size: 32`, `vgpr_count: 95`, `sgpr_count: 40`, zero private
+segment, and 4096 bytes LDS.
+
+Initial broad opt-in route:
+`cache/hrx2/phase2a/q4-vkm64x64-w32-opgate-20260616-131818/`.
+It passed focused p64/p512 MUL_MAT correctness and selected for Q4 rows with no
+provider-unavailable events. Backend-op perf showed the route is p64-specific:
+
+| Shape row | Existing VKM64x64 | Wave32 broad | Change |
+| --- | ---: | ---: | ---: |
+| p64 `k3072 rows1024 cols64` | `173.998 us` | `158.521 us` | `1.098x` |
+| p64 `k3072 rows3072 cols64` | `142.558 us` | `127.424 us` | `1.119x` |
+| p64 `k8192 rows3072 cols64` | `367.911 us` | `330.732 us` | `1.112x` |
+| p64 `k3072 rows8192 cols64` | `207.450 us` | `199.565 us` | `1.040x` |
+| p512 `k3072 rows1024 cols512` | `197.872 us` | `186.637 us` | `1.060x` |
+| p512 `k3072 rows3072 cols512` | `377.005 us` | `422.495 us` | `0.892x` |
+| p512 `k8192 rows3072 cols512` | `1010.764 us` | `1172.171 us` | `0.862x` |
+| p512 `k3072 rows8192 cols512` | `1035.105 us` | `1112.181 us` | `0.931x` |
+
+The route was narrowed to two data-driven cols64 domains to avoid the p512
+regression and the model-specific p64 regressions:
+
+- `k=3072`, `rows=1024..8192`, `cols=64`
+- `k=8192`, `rows=3072`, `cols=64`
+
+Default focused gate after narrowing:
+`cache/hrx2/phase2a/q4-vkm64x64-w32-default-opgate-20260616-132707/`.
+Both p64 and p512 MUL_MAT correctness passed with zero provider-unavailable
+events. The p64 gate selected the two narrow wave32 routes; the p512 gate stayed
+on the existing wave64 VKM64x64 route. Rollback:
+`GGML_HRX2_DISABLE_Q4_HIP_VKM64X64_W32_PROMPT=1`.
+
+Same-binary p64 HRX2-only smoke:
+
+| Model | Default before | Narrow wave32 default | Change |
+| --- | ---: | ---: | ---: |
+| Phi-4 mini Q4_K_M | `1389.415` | `1438.915` | `1.036x` |
+| Llama 3.2 3B Q4_K_M | `1405.980` | `1490.805` | `1.060x` |
+| Llama 3.1 8B Q4_K_M | `772.745` | `781.945` | `1.012x` |
+
+Reduced same-machine HRX2/Vulkan rerun:
+`cache/hrx2/phase2a/q4-w32-narrow-default-reduced-20260616-132805/`.
+
+| Model | Case | HRX2 steady | Vulkan steady | HRX2/Vulkan | CPU compute |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | p64 | `1486.525` | `3149.130` | `0.4720` | 0 |
+| Llama 3.2 3B Q4_K_M | p512 | `3576.075` | `6095.020` | `0.5867` | 0 |
+| Phi-4 mini Q4_K_M | p64 | `1431.490` | `2781.430` | `0.5147` | 0 |
+| Phi-4 mini Q4_K_M | p512 | `3160.940` | `5335.150` | `0.5925` | 0 |
+| Llama 3.1 8B Q4_K_M | p64 | `782.226` | `1542.550` | `0.5071` | 0 |
+| Llama 3.1 8B Q4_K_M | p512 | `1414.535` | `2655.665` | `0.5326` | 0 |
+
+Decision: accept and default-enable only for the two narrow cols64 domains.
+This is a useful p64 boulder fix without p512 exposure. Phi and 8B p64 now
+clear the `0.5x` Vulkan target, and Llama 3.2 p64 moved from `0.4455x` to
+`0.4720x`. The remaining Llama 3.2 p64 gap is not solved by broad wave32 alone;
+the next p64 work should target route-level Q8_1 x4 quantization/reuse,
+attention/fusion traffic, or a new Q4 ownership/staging family seeded from
+Vulkan/HRX1 disassembly.
+
+### Rejected Q4_K BM128/BN64 Bracket
+
+Date: 2026-06-16.
+
+A bounded adjacent probe tried to reuse the accepted Vulkan-medium Q4_K HIP
+bridge dataflow but double the row tile from `BM64` to `BM128` while keeping
+`BN64`, pack2 Q4 A-cache, packed Q8_1/x4 RHS, `sudot4`, and the same
+per-wave `WM64/WN32/TM2/TN2` ownership. This brackets the hypothesis that p64
+could benefit from staging a 64-column B tile once for two row groups.
+
+The candidate was opt-in only via
+`GGML_HRX2_ENABLE_Q4_HIP_VKL128X64_PROMPT`. Focused correctness traces:
+`cache/hrx2/phase2a/q4-vkl128x64-opgate-20260616-125932/`.
+No provider-unavailable events occurred, and the new route selected for the
+four Q4 prompt rows in both p64 and p512 test files. Full perf tracing was
+aborted because it produced hundreds of MB of JSONL and distorted the gate;
+clean no-trace perf was rerun at
+`cache/hrx2/phase2a/q4-vkl128x64-perf-notrace-20260616-130057/`.
+
+Prompt Q4 rows versus the accepted VKM64x64 default:
+
+| Shape row | VKM64x64 | BM128/BN64 | Change |
+| --- | ---: | ---: | ---: |
+| p64 `k3072 rows1024 cols64` | `173.998 us` | `177.832 us` | `0.978x` |
+| p64 `k3072 rows3072 cols64` | `142.558 us` | `151.921 us` | `0.938x` |
+| p64 `k8192 rows3072 cols64` | `367.911 us` | `375.675 us` | `0.979x` |
+| p64 `k3072 rows8192 cols64` | `207.450 us` | `208.542 us` | `0.995x` |
+| p512 `k3072 rows1024 cols512` | `197.872 us` | `199.215 us` | `0.993x` |
+| p512 `k3072 rows3072 cols512` | `377.005 us` | `368.106 us` | `1.024x` |
+| p512 `k8192 rows3072 cols512` | `1010.764 us` | `992.308 us` | `1.019x` |
+| p512 `k3072 rows8192 cols512` | `1035.105 us` | `1026.489 us` | `1.008x` |
+
+Decision: reject and remove before model integration. The probe is useful as a
+bracketed negative result: doubling the row tile does not address the p64 miss
+and slightly hurts every p64 Q4 prompt row. The next Q4 schedule move should
+change a different structural axis, such as B/K staging depth, lane/output
+ownership, or an HRX1/Vulkan disassembly-matched implementation, and it should
+again start as a backend-op sweep.
+
+### Stable Llama 3.2 p64 Gap After Wave32 Q4
+
+Date: 2026-06-16.
+
+The previous reduced run left only one selected prefill case below the strict
+`0.5x` Vulkan line: Llama 3.2 3B Q4_K_M p64. A longer isolated rerun confirms
+that this is stable rather than a one-run artifact:
+
+Artifact:
+`cache/hrx2/phase2a/llama32-p64-rerun-current-20260616-134601/`.
+
+| Backend | Samples tok/s | Steady tok/s |
+| --- | --- | ---: |
+| HRX2 | `436.6, 1499.6, 1478.1, 1498.7, 1520.8, 1538.8, 1561.2` | `1516.182` |
+| Vulkan | `1630.4, 3191.1, 3132.8, 3096.3, 3127.1, 3119.1, 3133.8` | `3133.367` |
+
+Steady ratio: `0.4839x`. CPU fallback remains zero. The HRX2 route trace over
+seven repetitions has `3913` dispatches, `19` provider compiles, `74` stream
+synchronizes, `239` stream flushes, and `322` submit-batch flushes.
+
+Top active route families:
+
+| Route | Dispatches |
+| --- | ---: |
+| `mul_mat_q4_k_q8_1_x4_hip_vkm64x64_pack2_w32_gfx1100_k3072_r1024_8192_c64_wg128` | `1064` |
+| `quantize_q8_1_x4_f32_generic_wg128` | `770` |
+| `rms_norm_mul_f32_n3072_r64_vector_vw4_wg512` | `385` |
+| `add_f32_generic_wg256` | `378` |
+| `flash_attn_fa0_f32_f16_direct_d128_gfx1100_n1_512_kv1_512_h1_64_hkv1_16_wg256` | `196` |
+| `mul_mat_q6_k_q8_1_x4_mmq64x32_k256_32768_r1_262144_c32_512_wg256` | `189` |
+| `swiglu_f32_split_n8192_r1_64_wg256` | `189` |
+| `mul_mat_q4_k_q8_1_x4_hip_vkm64x64_pack2_w32_gfx1100_k8192_r3072_c64_wg128` | `98` |
+
+Same-run Vulkan perf logger shows the remaining large per-shape gaps are still
+quantized prompt matmuls. In the steady samples Vulkan reports approximately:
+
+| Vulkan bucket | Avg time |
+| --- | ---: |
+| Q4_K `m=1024 n=64 k=3072` | `25 us` |
+| Q4_K `m=3072 n=64 k=3072` | `56-58 us` |
+| Q4_K `m=3072 n=64 k=8192` | `149-152 us` |
+| Q4_K `m=8192 n=64 k=3072` | `102-106 us` |
+| Q6_K `m=1024 n=64 k=3072` | `28-29 us` |
+| Q6_K `m=3072 n=64 k=8192` | `164-169 us` |
+
+The matching HRX backend-op rows after the accepted wave32 route remain roughly
+`158.7 us`, `128.9 us`, `335.5 us`, `201.0 us`, `180.6 us`, and `565.7 us`.
+The p64 miss should therefore stay focused on quantized matmul schedule quality
+or Q8_1 materialization/reuse. Smaller runtime fusions are useful only if they
+prove positive with model A/B.
+
+### Rejected Q6_K Small-Row HIP Cols64 Bridge
+
+Date: 2026-06-16.
+
+A narrow metadata probe tested whether the existing HRX1 Q6 HIP bridge should
+cover the active Llama 3.2 p64 attention value projection:
+`k=3072`, `rows=1024`, `cols=64`. This was intentionally narrower than the
+earlier rejected broad cols64 bridge so it could not disturb the known-regressed
+Q6 ffn/output rows.
+
+Artifact:
+`cache/hrx2/phase2a/q6-smallrow-hip-cols64-probe-20260616-134234/`.
+
+The touched row passed backend-op correctness and selected the new route:
+`mul_mat_q6_k_q8_1_x4_hip_mmql64x128_gfx1100_k3072_r1024_c64_wg256`.
+The full exported p64 op file still exits nonzero because of pre-existing
+NaN-equality failures in unrelated one-column CONT/GET_ROWS/SOFT_MAX/ROPE/GLU
+rows; those failures are not caused by the Q6 route and the Q6 rows themselves
+passed.
+
+Perf result:
+
+| Row | Current Loom route | Narrow HIP bridge | Change |
+| --- | ---: | ---: | ---: |
+| Q6_K `k3072 rows1024 cols64` | `180.575 us` | `246.680 us` | `0.73x` |
+
+Decision: reject and remove. The HRX1 bridge remains a p512/wide-Q6 tool, not
+the p64 small-row answer. The next Q6 small-row attempt should be a different
+schedule family, likely closer to Vulkan's fast `m=1024,n=64,k=3072` path, not
+another route-domain widening of the existing `mmql64x128` bridge.
+
+### Rejected Q4_K Wave32 Fast-Math Compile Flag
+
+Date: 2026-06-16.
+
+A low-cost compiler-codegen probe rebuilt only the Q4 wave32 HIP HSACO with
+`-ffast-math`, leaving the accepted wave32 schedule and route domains unchanged.
+This tested whether the remaining p64 gap was partly from conservative float
+scale/min arithmetic lowering rather than schedule shape.
+
+Artifact:
+`cache/hrx2/phase2a/q4-w32-fastmath-opperf-20260616-134756/`.
+
+Focused p64 backend-op perf was uniformly worse:
+
+| Q4 row | Current wave32 | `-ffast-math` wave32 | Change |
+| --- | ---: | ---: | ---: |
+| `k3072 rows1024 cols64` | `158.720 us` | `177.547 us` | `0.89x` |
+| `k3072 rows3072 cols64` | `128.886 us` | `145.496 us` | `0.89x` |
+| `k3072 rows8192 cols64` | `201.048 us` | `214.209 us` | `0.94x` |
+| `k8192 rows3072 cols64` | `335.481 us` | `379.830 us` | `0.88x` |
+
+Decision: reject and remove. Keep the explicit `-O3 -mno-wavefrontsize64`
+wave32 build. Future Q4 p64 work should change the schedule or emitted ISA
+shape, not global fast-math flags.
+
+### Rejected Q4_K Wave32 TM4/TN1 Ownership Bracket
+
+Date: 2026-06-16.
+
+A bounded opt-in ownership probe kept the accepted Q4 Vulkan-medium wave32
+dataflow fixed:
+
+- `BM=64`, `BN=64`, `BK_STEP=1`, `BLOCK_SIZE=128`
+- packed-Q8_1-x4 RHS and pack2 Q4 A cache
+- `WARP=32`, `WM=32`, `WN=32`, `WMITER=1`
+- same narrow p64 route domains as the accepted wave32 route
+
+The only intended schedule-axis change was per-lane output ownership:
+`TM=2,TN=2` became `TM=4,TN=1`. This tested whether fewer per-lane column
+accumulators and more row outputs would help the p64 small-row path.
+
+Artifact:
+`cache/hrx2/phase2a/q4-w32-tm4tn1-opperf-20260616-135444/`.
+
+The candidate selected correctly for the p64 Q4 rows with zero
+provider-unavailable events, but focused backend-op perf was uniformly worse:
+
+| Q4 row | Current wave32 `TM2/TN2` | Candidate `TM4/TN1` | Change |
+| --- | ---: | ---: | ---: |
+| `k3072 rows1024 cols64` | `158.720 us` | `175.287 us` | `0.91x` |
+| `k3072 rows3072 cols64` | `128.886 us` | `143.654 us` | `0.90x` |
+| `k3072 rows8192 cols64` | `201.048 us` | `216.585 us` | `0.93x` |
+| `k8192 rows3072 cols64` | `335.481 us` | `376.658 us` | `0.89x` |
+
+Decision: reject and remove before model integration. The accepted wave32
+ownership map should remain `TM2/TN2`. Future Q4 p64 work should pivot a
+different structural axis, such as a Vulkan-disassembly-matched row/column
+grouping, Q8_1 materialization/reuse, or a true fusion that removes repeated
+Q8 quantize plus standalone GLU traffic.
+
+### Rejected Q4_K Wave32 BM32/WG64 Parallelism Bracket
+
+Date: 2026-06-16.
+
+A temporary op-level replacement tested whether the accepted Q4 wave32
+Vulkan-medium route was under-parallelized on the smallest p64 rows. The probe
+kept the current export name and dataflow but changed the launch shape from
+`BM=64`, `BLOCK_SIZE=128`, `rows_per_workgroup=64` to `BM=32`,
+`BLOCK_SIZE=64`, `rows_per_workgroup=32`. This doubled row workgroups for
+`rows=1024` and tested the broad hypothesis that small-row p64 was limited by
+too few workgroups rather than per-workgroup schedule quality.
+
+Artifact:
+`cache/hrx2/phase2a/q4-w32-bm32-opperf-20260616-140144/`.
+
+Focused backend-op perf was uniformly worse:
+
+| Q4 row | Current wave32 BM64/WG128 | Candidate BM32/WG64 | Change |
+| --- | ---: | ---: | ---: |
+| `k3072 rows1024 cols64` | `158.720 us` | `168.879 us` | `0.94x` |
+| `k3072 rows3072 cols64` | `128.886 us` | `140.038 us` | `0.92x` |
+| `k3072 rows8192 cols64` | `201.048 us` | `216.749 us` | `0.93x` |
+| `k8192 rows3072 cols64` | `335.481 us` | `373.390 us` | `0.90x` |
+
+Decision: reject and remove before integration. The p64 miss is not fixed by
+simply increasing row workgroup count in this schedule family. Future Q4 p64
+work should compare against Vulkan/HRX1 prior schedule facts and target a
+different dataflow axis, especially Q8_1 materialization/reuse or a
+Vulkan-matched packed matmul schedule.
+
+### Accepted Q6_K Wave32 BK_STEP4 Cols64 Prompt Bridge
+
+Date: 2026-06-16.
+
+The next prior-led Q6 probe targeted the remaining Llama 3.2 p64 cols64 Q6
+rows. The current Loom `mmq64x32` route was far from Vulkan on the hot p64
+rows, while the existing HRX1 HIP bridge was only available for cols128+ and a
+metadata-only cols64 widening had previously regressed the small-row case.
+
+The accepted route keeps the Vulkan/HRX1 packed-Q8_1-x4 MMQ dataflow but uses
+a cols64-specific wave32 tile:
+
+- `BM=64`, `BN=64`, `BLOCK_SIZE=128`
+- four wave32 tiles per workgroup, `WM=32`, `WN=32`
+- `TM=2`, `TN=2`, `WNITER=8`
+- packed Q6_K A and packed Q8_1-x4 B staged through LDS
+- `BK_STEP=4`; the initial `BK_STEP=1` variant was rejected
+
+Artifact:
+`cache/hrx2/phase2a/q6-w32-vkm64x64-opgate-20260616-140920/`.
+
+Focused correctness passed for the touched p64 Q6 rows. Same-binary focused
+perf, using `GGML_HRX2_DISABLE_Q5_Q6_HIP_BRIDGE_PROMPT=1` as the baseline for
+the current Loom path:
+
+| Q6 row | Current Loom route | Q6 wave32 `BK_STEP=1` | Q6 wave32 `BK_STEP=4` | Accepted change |
+| --- | ---: | ---: | ---: | ---: |
+| `k3072 rows1024 cols64` | `178.834 us` | `206.558 us` | `162.701 us` | `1.10x` |
+| `k8192 rows3072 cols64` | `561.460 us` | not selected | `336.034 us` | `1.67x` |
+
+The `BK_STEP=1` result is an important negative: simply moving the Q4 wave32
+ownership pattern to Q6 was not enough. The winning variant needed the HRX1
+Q6/Vulkan staging fact, reducing barrier frequency by staging four K blocks per
+LDS fill.
+
+Reduced three-model p64/p512 HRX2/Vulkan rerun:
+`cache/hrx2/phase2a/q6-w32-vkm64x64-reduced-20260616-141320/`.
+
+| Model | Case | Previous HRX2 steady | New HRX2 steady | HRX2 speedup | New HRX2/Vulkan |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Llama 3.2 3B Q4_K_M | p64 | `1486.525` | `1547.035` | `1.041x` | `0.4936` |
+| Llama 3.2 3B Q4_K_M | p512 | `3576.075` | `3595.320` | `1.005x` | `0.5946` |
+| Phi-4 mini Q4_K_M | p64 | `1431.490` | `1528.635` | `1.068x` | `0.5630` |
+| Phi-4 mini Q4_K_M | p512 | `3160.940` | `3189.665` | `1.009x` | `0.6023` |
+| Llama 3.1 8B Q4_K_M | p64 | `782.226` | `777.189` | `0.994x` | `0.4541` |
+| Llama 3.1 8B Q4_K_M | p512 | `1414.535` | `1424.220` | `1.007x` | `0.5372` |
+
+Decision: accept the two narrow Q6 cols64 routes. The Llama 3.2 p64 KPI moves
+close to the `0.5x` line but remains slightly short; the top blocker is still
+Q4_K prompt matmul. Future Q6 work should start from this `BK_STEP=4` wave32
+cols64 family and bracket around real prior axes rather than using the current
+Loom `mmq64x32` schedule as the only reference.
+
+### Rejected Q4_K Wave32 BK_STEP4 Staging Bracket
+
+Date: 2026-06-16.
+
+After the Q6_K wave32 `BK_STEP=4` win, the same prior axis was tested on the
+accepted Q4_K wave32 p64 bridge. This was a controlled bracket: keep the
+accepted `BM64/BN64/WG128/wave32/TM2/TN2/pack2` Q4 schedule and change only
+K staging from `BK_STEP=1` to `BK_STEP=4`, matching Vulkan's default MMQ
+staging knob.
+
+Artifact:
+`cache/hrx2/phase2a/q4-w32-bkstep4-opperf-20260616-141721/`.
+
+Focused backend-op correctness for the Q4 MUL_MAT rows passed, but perf
+regressed catastrophically:
+
+| Q4 row | Current wave32 `BK_STEP=1` | Candidate `BK_STEP=4` | Change |
+| --- | ---: | ---: | ---: |
+| `k3072 rows1024 cols64` | `158.720 us` | `1283.848 us` | `0.12x` |
+| `k3072 rows3072 cols64` | `128.886 us` | `1660.229 us` | `0.08x` |
+| `k3072 rows8192 cols64` | `201.048 us` | `3093.751 us` | `0.07x` |
+| `k8192 rows3072 cols64` | `335.481 us` | `4306.994 us` | `0.08x` |
+
+Decision: reject and remove. Do not generalize the Q6 staging result to Q4.
+The Q4 p64 gap needs a different structural change, likely Q8_1
+materialization/reuse, a different row/column ownership family, or a closer
+Vulkan ISA/schedule match rather than only increasing staged K blocks.
+
+### Accepted Q5_K Wave32 Cols64 Prompt Bridge
+
+Date: 2026-06-16.
+
+The latest reduced traces showed Phi-4 mini p64 still spending 96 dispatches on
+the generic Loom Q5_K `mmq32x32` path:
+
+```text
+mul_mat_q5_k_q8_1_x4_mmq32x32... k3072 rows5120 cols64 x96
+```
+
+This was the same broad family as the accepted Q6 cols64 wave32 bridge: a
+cols64 prompt row that was too narrow for the existing HRX1-derived wide Q5
+HIP bridge (`cols>=128`) but hot enough to matter. The accepted Q5 route keeps
+the HRX1/Vulkan Q5 packed-Q8_1-x4 dataflow and `sudot4` arithmetic, but uses a
+cols64 wave32 tile:
+
+- `BM=64`, `BN=64`, `BLOCK_SIZE=128`
+- four wave32 tiles per workgroup, `WM=32`, `WN=32`
+- `TM=2`, `TN=2`, `WNITER=8`
+- packed Q5_K A and packed Q8_1-x4 B staged through LDS
+- `BK_STEP=1`, matching the proven wide Q5 bridge rather than the Q6-specific
+  `BK_STEP=4` result
+
+Artifacts:
+
+- correctness: `cache/hrx2/phase2a/q5-w32-vkm64x64-opgate-20260616-142728/`
+- focused perf: `cache/hrx2/phase2a/q5-w32-vkm64x64-perf-20260616-142752/`
+- Phi p64 smoke: `cache/hrx2/phase2a/q5-w32-vkm64x64-phi-smoke-20260616-142837/`
+- reduced basket: `cache/hrx2/phase2a/q5-w32-vkm64x64-reduced-20260616-142906/`
+
+Focused backend-op correctness passed for the Phi p64 Q5/Q6 hot rows, and the
+Q5 row selected:
+
+```text
+mul_mat_q5_k_q8_1_x4_hip_vkm64x64_w32_gfx1100_k3072_r5120_c64_wg128
+```
+
+Same-binary focused perf, using `GGML_HRX2_DISABLE_Q5_Q6_HIP_BRIDGE_PROMPT=1`
+as the old-route baseline:
+
+| Row | Old route | New route | Change |
+| --- | ---: | ---: | ---: |
+| Q5_K `k3072 rows5120 cols64` | `310.158 us` | `194.608 us` | `1.59x` |
+| Q6_K `k8192 rows3072 cols64` | `525.669 us` | `333.406 us` | unchanged accepted Q6 route |
+| Q6_K `k3072 rows200064 cols64` | `11979.508 us` | `11850.718 us` | noise |
+
+Reduced three-model p64/p512 HRX2/Vulkan rerun:
+
+| Model | Case | Previous HRX2 steady | New HRX2 steady | HRX2 speedup | New HRX2/Vulkan |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Phi-4 mini Q4_K_M | p64 | `1528.635` | `1656.325` | `1.084x` | `0.5957` |
+| Phi-4 mini Q4_K_M | p512 | `3189.665` | `3198.405` | `1.003x` | `0.5942` |
+| Llama 3.2 3B Q4_K_M | p64 | `1547.035` | `1558.710` | `1.008x` | `0.4950` |
+| Llama 3.2 3B Q4_K_M | p512 | `3595.320` | `3634.705` | `1.011x` | `0.6087` |
+| Llama 3.1 8B Q4_K_M | p64 | `777.189` | `780.342` | `1.004x` | `0.4699` |
+| Llama 3.1 8B Q4_K_M | p512 | `1424.220` | `1414.365` | `0.993x` | `0.5349` |
+
+Decision: accept the narrow Phi p64 Q5 route. The top blocker for Phi p64
+remains Q8_1 quantization and residual Q4/Q6 prompt traffic, but the Q5 row
+is no longer on the generic Loom schedule. Future Q5 cols64 work should start
+from this wave32 `BM64/BN64` route and widen only after focused op gates prove
+adjacent shapes.

@@ -29,10 +29,40 @@ This skill is an entrypoint. Load only the reference file needed for the task:
 - When isolating backend behavior, run focused backend op unit tests before
   full integration/model tests. Use integration tests after the op-level path is
   understood, not as the first debugging boundary.
+- Before changing or promoting a hero kernel, fill in the candidate gate below.
+  Empty fields mean the work is still a probe and must not become a default
+  route:
+
+```markdown
+### Candidate Gate
+
+- Production target:
+- Baseline command:
+- Variant command:
+- Same-runner comparison method:
+- Route trace path:
+- Scheduler/per-op trace path:
+- Focused CPU-reference command:
+- Compile report path:
+- Target listing path:
+- Prior-art schedule source:
+- Promotion rule:
+```
+
 - For Loom kernels, treat the source as WYSIWYG. Explicitly encode vector
   widths, packed load widths, tile shapes, address-range assumptions, and dot
   forms; do not expect the compiler to infer those choices from scalar-looking
   code. Use compile reports and ISA/resource checks to verify the spelling.
+- At the start of a serious Loom authoring session, read the tool-owned agent
+  snippets from the normal CMake install tree. Do not use Bazel for this
+  workspace flow:
+
+```bash
+build/hrx-install/bin/iree-benchmark-loom --agents_md
+
+build/hrx-install/bin/loom-compile --agents_md
+```
+
 - Spell packed integer dot signedness from the mathematical data, not from the
   storage type. Q4_K codes are unsigned 4-bit values widened into i8 lanes and
   Q8_1 activations are signed i8 values, so Q4_K x Q8_1 dot products should be
@@ -105,16 +135,22 @@ This skill is an entrypoint. Load only the reference file needed for the task:
    should correspond to one row in that list, not to an ungrounded guess.
 7. If the task involves wavefront size, WMMA, dot, LDS, or spills, read
    `amd_rdna3_wavefront_isa_gotchas.md`.
-8. Implement a narrow provider or source change with an opt-out or opt-in knob.
-9. Run focused backend op/unit correctness for the touched route before any
+8. Compile or benchmark with artifact bundles and rich reports before trusting
+   source-level reasoning. Inspect static summary, pressure, spills, memory
+   rows, bank-conflict classification, target legalization, and target listing
+   before promotion.
+9. Implement a narrow provider or source change with an opt-out or opt-in knob.
+10. Run focused backend op/unit correctness for the touched route before any
    model-level integration test.
-10. Run inner-loop correctness:
+11. Run inner-loop correctness:
    `reproducers/qwen_hrx_inner_loop.sh`.
-11. Capture Tracy plus `.ireeprof`; compare dispatch counts, export route, and
+12. Capture Tracy plus `.ireeprof`; compare dispatch counts, export route, and
    dispatch time buckets before attributing a regression to a kernel.
-12. Run the full milestone gate before promotion:
+13. Run the full milestone gate before promotion:
    `reproducers/qwen_hrx_correctness_gate.sh`.
-13. Record accepted and rejected results in the analysis log.
+14. Record accepted and rejected results in the analysis log, including which
+    gate failed: route selection, correctness, emitted schedule shape, focused
+    timing, production A/B, or stability.
 
 ## Quick Commands
 
@@ -239,11 +275,28 @@ batched-attention route and accepted Phi V-cache `CONT_SET_ROWS` fusion is:
 cache/hrx2/phase2a/current-reduced-after-cont-setrows-20260615-235800/
 ```
 
-Decode is currently about 0.33x-0.39x Vulkan with zero CPU compute fallback.
-Prefill is still the bulk blocker at about 0.016x-0.05x Vulkan. Treat this as a
-structural problem until evidence says otherwise. The current top boulders are:
+The current repeated prefill artifact after the accepted Q4_K Vulkan-medium
+HIP bridge is:
 
-- Q4_K prompt matmul schedule.
+```text
+cache/hrx2/phase2a/q4-vkm64x64-default-reduced-20260616-124844/
+```
+
+This run uses backend-specific library paths and confirms `backends=Vulkan` for
+Vulkan rows. Steady-state HRX2/Vulkan ratios are about `0.53x-0.61x` on p512,
+`0.49x-0.50x` on Phi/8B p64, and `0.45x` on Llama 3.2 3B p64, with zero CPU
+compute fallback. The earlier artifact
+`cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/` is invalid
+for KPI comparisons because its "Vulkan" JSON rows report `backends=HRX2`.
+Future Phase 2a reports must separate cold-start/JIT/provider overhead from
+steady-state throughput and verify backend identity before declaring a broad
+prefill boulder.
+
+The current top route families to keep guarded and improve with focused
+evidence are:
+
+- Q4_K prompt matmul schedule, especially remaining p64 gap after the accepted
+  `vkm64x64_pack2` route.
 - Q5/Q6 prompt matmul routes.
 - Attention-chain/fusion candidates.
 
@@ -271,22 +324,11 @@ HRX1/Vulkan-style tiled MMQ schedule with packed Q8_1 RHS, cooperative A/B
 staging, dot4 inner loops, and multi-output lane ownership, or a tiny
 diagnostic consumer that precisely proves the current x4 layout bug.
 
-For the current HRX2 Phase 2a prefill gap, use the fresh reduced basket
-artifact `cache/hrx2/phase2a/current-reduced-after-cont-setrows-20260615-235800/`
-as the recent checkpoint. Decode is roughly one third of Vulkan with no CPU
-compute fallback, while prefill is still only about 0.016x-0.05x Vulkan and the
-final stream sync is carrying real device work. This means kernel/fusion
-quality is the broad issue, not just launch overhead. Prioritize Q4_K prompt
-matmul, Q5/Q6 prompt matmuls, and attention-chain/fusion candidates. For each
-candidate, first extract a known-good schedule from HRX1, Vulkan, CUDA/HIP, or
-emitted ISA; then spell the missing vector widths, load widths, dot forms,
-staging, tile shape, unroll policy, and bounds handling in Loom.
-
-The latest fresh reduced rerun is
-`cache/hrx2/phase2a/current-reduced-20260616-000512/`. It reconfirmed zero CPU
-compute fallback, decode around one third of Vulkan, and prefill around
-0.016x-0.05x Vulkan. If this differs from a newer artifact, prefer the newer
-same-run HRX2/Vulkan basket and update this note.
+Use the latest repeated same-run HRX2/Vulkan basket, not older cold one-shot
+artifacts, for broad throughput judgments. Cold one-shot traces are still useful
+for route histograms, CPU fallback checks, and provider compile evidence. If a
+candidate appears to move only cold performance, prove whether it changed
+provider/JIT/runtime work or device work before promoting it.
 
 Current next boulders: Q4_K/Q5_K/Q6_K prompt matmul quality and attention-chain
 fusions. For Q4_K, use either a standalone Loom/low-level integer-LDS

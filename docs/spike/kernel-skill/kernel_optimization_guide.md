@@ -98,12 +98,19 @@ proven otherwise. Own the full stack needed to prove that: environment, build
 state, stale kernel caches, benchmark harness, route metadata, runtime interop,
 and model-shape evidence are all part of the optimization task.
 
-Current Phase 2a evidence puts decode at roughly 0.23x-0.38x Vulkan with no CPU
-compute fallback, while prefill remains about 0.015x-0.05x Vulkan. Do not spend
-multi-hour loops on tiny knobs in that state. First rule out the big classes:
-unsupported route domains, CPU fallback, graph materialization/copy traffic,
-missing HRX1 runtime behavior, weak packed quantized matmul schedules, missing
-attention/fusion paths, and measurement artifacts.
+Current Phase 2a evidence has already shown one important measurement trap:
+the artifact
+`cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/` appeared to
+show parity, but its "Vulkan" `llama-bench` JSON rows report `backends=HRX2`.
+Do not use it for KPI decisions. The current authoritative reduced prefill
+artifact is
+`cache/hrx2/phase2a/q4-vkm64x64-default-reduced-20260616-124844/`, which uses
+backend-specific library paths and reports cold and steady-state samples. If
+HRX2 is still far behind after that control, do not spend multi-hour loops on
+tiny knobs. First rule out the big classes: unsupported route domains, CPU
+fallback, graph materialization/copy traffic, missing HRX1 runtime behavior,
+weak packed quantized matmul schedules, missing attention/fusion paths, and
+measurement artifacts.
 
 Before coding a large kernel rewrite, produce a prior matrix from HRX1, Vulkan,
 CUDA/HIP, and any relevant backend: exact source/symbol, shape regime, tile
@@ -182,6 +189,157 @@ backend-op sweep and record route selection, correctness, device timing, compile
 report deltas, and emitted ISA/resource facts. Move the winning variant into
 the llama.cpp production catalog only after it has bucket-level evidence and a
 clear shape domain.
+
+### Candidate gate before promotion
+
+For hero routes, write this block before editing source. If a line is empty,
+the work may continue only as an exploratory probe. It is not ready for
+production route promotion:
+
+```markdown
+### Candidate Gate
+
+- Production target:
+- Baseline command:
+- Variant command:
+- Same-runner comparison method:
+- Route trace path:
+- Scheduler/per-op trace path:
+- Focused CPU-reference command:
+- Compile report path:
+- Target listing path:
+- Prior-art schedule source:
+- Promotion rule:
+```
+
+The gate exists to keep the evidence hierarchy intact:
+
+```text
+production row or focused model slice
+  -> same-runner baseline and comparison target
+  -> route trace proves the intended provider selected
+  -> profile/per-op trace ranks boulders
+  -> prior-art schedule table from HRX1/Vulkan/CUDA/HIP
+  -> Loom or bridge source expresses that schedule class
+  -> compile report/listing proves emitted schedule shape
+  -> focused CPU-reference gate
+  -> same-binary model/op A/B
+  -> route promotion only if the production gate wins
+```
+
+Focused correctness, standalone timing, and dispatch-count reduction are
+necessary evidence, not promotion evidence by themselves. A route that passes
+CPU-reference rows and reduces dispatches can still regress model throughput if
+it uses the wrong schedule class or adds memory traffic in the wrong place.
+
+### Loom evidence protocol
+
+At the start of a serious Loom authoring session, read the tool-owned guidance:
+
+```bash
+build/hrx-install/bin/iree-benchmark-loom --agents_md
+
+build/hrx-install/bin/loom-compile --agents_md
+```
+
+Use dry-run before timing to prove the named benchmark selected real samples:
+
+```bash
+build/hrx-install/bin/iree-benchmark-loom \
+  path/to/kernel.loom \
+  --benchmark=@candidate_latency \
+  --dry-run \
+  --output=/tmp/loom-plan.json
+
+jq '{summary, benchmarks, work_items, failures, failed_samples}' /tmp/loom-plan.json
+```
+
+Use artifact bundles and rich compile reports for serious candidate sweeps:
+
+```bash
+RUN=/tmp/loom-run
+
+build/hrx-install/bin/iree-benchmark-loom \
+  path/to/kernel.loom \
+  --device=amdgpu \
+  --benchmark=@candidate_latency \
+  --measure=dispatch_complete \
+  --sample-compilation=both \
+  --output-format=jsonl \
+  --artifact-bundle-dir="$RUN" \
+  --artifact-bundle-policy=debug \
+  --artifact-manifest=analysis \
+  --compile-report=json-details \
+  --profile-final-batch=true \
+  --profile-data=dispatch-events,executable-metadata \
+  --input-ring-min-bytes=33554432
+```
+
+Inspect at least these report facts before promotion:
+
+```bash
+jq 'select(.row=="compile" and .static_summary)
+  | {candidate_id,
+     code:.static_summary.code_byte_count,
+     spills:.static_summary.allocation_spill_count,
+     valu:.static_summary.vector_alu_count,
+     dot:.static_summary.dot_count,
+     global:.static_summary.global_memory_count,
+     local:.static_summary.local_memory_count,
+     lds_bytes:.static_summary.local_memory_bytes,
+     pressure:.static_summary.register_pressure_peak_live_units}' \
+  "$RUN/results.jsonl"
+
+jq 'select(.row=="compile" and .compile_report_path)
+  | {candidate_id, compile_report_path, artifact_manifest_path,
+     target_artifact_path, target_listing_path, hal_executable_path}' \
+  "$RUN/results.jsonl"
+
+jq '.source_low.memory_rows[]?
+  | {function, source_op, memory_space, operation, packet,
+     element_bytes, vector_lanes,
+     dynamic_stride_bytes, vector_lane_stride_bytes,
+     bank_stride_words, bank_conflict_degree, bank_conflict_kind}' \
+  path/to/compile-report.json
+
+jq '.target_legalization.rows[]?
+  | select(.action != "legal" or .outcome != "already-legal")
+  | {function, source_op, mode, policy, action, outcome, contract,
+     legalizer, strategy, source_rejections, target_rejections,
+     missing_features, missing_facts, created_ops, erased_ops}' \
+  path/to/compile-report.json
+```
+
+For Loom-vs-Loom hill climbing, prefer interleaved comparison:
+
+```bash
+build/hrx-install/bin/iree-benchmark-loom \
+  path/to/kernel.loom \
+  --device=amdgpu \
+  --compare=@baseline_latency,@variant_latency \
+  --interleave=ABABA \
+  --sample=0 \
+  --measure=dispatch_complete \
+  --output-format=jsonl \
+  --artifact-bundle-dir=/tmp/loom-ababa \
+  --artifact-bundle-policy=debug \
+  --compile-report=json-details
+```
+
+### Timing domains
+
+Keep timing domains separate:
+
+| Comparison | Correct timing domain |
+| --- | --- |
+| Loom candidate A vs Loom candidate B | `iree-benchmark-loom --compare`, same flags, same sample, interleaved. |
+| Loom source variants over many shapes | `iree-benchmark-loom` JSONL bundles with the same measurement mode and cache policy. |
+| Loom code object vs HIP/CUDA/native code object under a few microseconds | Same runner, same fixture buffers, same launch path, `rocprofv3 --kernel-trace` or equivalent device timestamp source. |
+| Route promotion in llama.cpp | Same binary/model/op A/B with route trace and CPU-reference correctness. |
+
+Standalone Loom timing can rank Loom candidates. It should not be used alone to
+claim parity with HIP or Vulkan unless the runner and timing boundary are the
+same.
 
 ### Decode grind loop that held up
 

@@ -46,6 +46,12 @@ This workspace is for shared development of llama.cpp with HRX support.
 - When isolating backend behavior, run focused backend op unit tests before
   moving to full integration/model tests. They exist to catch route, kernel, and
   compiler failures at the smallest useful boundary.
+- For serious kernel work, define the production acceptance row before editing
+  source: exact model/op/shape, baseline command, variant command, same-runner
+  comparison method, route trace path, scheduler/profile trace path, focused
+  CPU-reference gate, compile report path, target listing path, prior-art
+  schedule source, and promotion rule. If any line is unknown, the work may
+  proceed only as an exploratory probe, not as a route promotion.
 - For kernel performance gaps larger than a small local regression, do not
   guess new schedules from the current HRX2/Loom source alone. First mine and
   mechanically compare known priors from HRX1, Vulkan, CUDA/HIP, and other
@@ -75,6 +81,10 @@ This workspace is for shared development of llama.cpp with HRX support.
   comparisons. Prefer backend-op timing, provider traces, compile reports, ISA,
   and same-run Vulkan/HRX2 baskets. Avoid cross-tool timing conclusions unless
   the measurement methodology has been pinned down.
+- Respect timing domains. Use Loom `iree-benchmark-loom --compare` only for
+  Loom-vs-Loom hill climbing. Use a common runner/common launch path for
+  sub-5us Loom-vs-HIP/HSACO parity claims. Use same-binary llama.cpp A/B with
+  route traces for production promotion.
 - When a kernel is far from target, look for structural mistakes before local
   tuning: missing route, CPU fallback, bad pack/layout contract, wrong dot
   signedness, wrong lane ownership, insufficient staging/vectorization, missing
@@ -125,32 +135,29 @@ This workspace is for shared development of llama.cpp with HRX support.
   candidate still loses badly, compare emitted ISA/resource reports before
   attributing the gap to compiler quality.
 - The current Q4_K prompt-matmul checkpoint is in
-  `docs/loom/llamacpp-hrx2-phase2a-report.md`. The accepted prompt path is the
-  non-x4 Q8_1 cols4 route. Q4_K x Q8_1 dot spelling has been corrected to
-  `vector.dot4i<u8s8>`, but packed Q8_1/x4 MMQ is still diagnostic-only and
-  must not be enabled by default.
-- Current fresh reduced baseline artifact after the accepted F16 attention
-  route and the accepted Phi V-cache `CONT_SET_ROWS` fusion:
-  `cache/hrx2/phase2a/current-reduced-after-cont-setrows-20260615-235800/`.
-  Decode is roughly 0.33x-0.39x Vulkan with zero CPU compute fallback. Prefill
-  remains the severe gap: roughly 0.016x-0.05x Vulkan. The large final
-  `hrx_stream_synchronize_end` spans real device work, so do not treat runtime
-  batching as the primary prefill explanation unless a new trace proves it.
-  Provider traces and Vulkan timing buckets put the main prefill boulders at
-  Q4_K prompt matmul, Q5/Q6 prompt matmuls, and attention-chain/fusion traffic.
-  Treat these as the next evidence-driven targets; only return to copy/`CONT`
-  work if fresh route traces show a remaining unfused structural cliff.
-- Latest fresh reduced rerun artifact:
-  `cache/hrx2/phase2a/current-reduced-20260616-000512/`. It reconfirmed zero
-  CPU compute fallback, decode around one third of Vulkan, and prefill around
-  0.016x-0.05x Vulkan. Top prefill routes remain Q4_K prompt matmul, F16
-  attention matmul/softmax chain, and Q5/Q6 prompt matmuls. Use this artifact
-  rather than older smoke-only runs when resuming Phase 2a triage.
-- Q4_K Q8_1/x4 MMQ remains blocked as of the current checkpoint. A direct
-  global-load diagnostic passed focused rows but was slow; staged integer A or
-  B payloads through Loom workgroup memory failed correctness. Treat this as a
-  Loom/low-level staging limitation or schedule-spelling problem, not a generic
-  Q4_K/Q8_1 route or dot-form issue.
+  `docs/loom/llamacpp-hrx2-phase2a-report.md`. The accepted default prompt
+  path is the HIP `vkm64x64_pack2` bridge with rollback
+  `GGML_HRX2_DISABLE_Q4_HIP_VKM64X64_PROMPT=1`. It follows the Vulkan medium
+  K-quant integer-MMQ tuple (`BLOCK_SIZE=128, BM64, BN64, WM64, WN32,
+  WMITER=1, TM2, TN2, WARP64`) while preserving the accepted pack2 Q4 A-cache.
+- Current authoritative repeated prefill artifact:
+  `cache/hrx2/phase2a/q4-vkm64x64-default-reduced-20260616-124844/`.
+  It uses backend-specific `LD_LIBRARY_PATH`, JSON-reported `backends=Vulkan`
+  for Vulkan rows, `--flash-attn 0`, three repetitions, and cold/steady
+  reporting. Steady-state ratios are about `0.53x-0.61x` Vulkan on p512,
+  `0.49x-0.50x` on Phi/8B p64, and `0.45x` on Llama 3.2 3B p64, with zero CPU
+  compute fallback.
+- Invalidated measurement artifact:
+  `cache/hrx2/phase2a/repeated-prefill-hrx2-vulkan-20260616-123059/`.
+  Its "Vulkan" JSON rows report `backends=HRX2`, so do not use its apparent
+  parity result for KPI decisions. It remains useful only as a reminder that
+  backend library contamination can invalidate comparisons.
+- Future Phase 2a comparisons must report cold and steady-state separately and
+  confirm `backends` in `llama-bench` JSON before drawing conclusions.
+- Q4_K Q8_1/x4 is no longer generally blocked: the accepted default path is the
+  llama.cpp-local HIP `vkm64x64_pack2` bridge. The older Loom staged-integer
+  MMQ route remains diagnostic-only after workgroup-memory correctness
+  failures; do not confuse that Loom limitation with the production HIP bridge.
 
 ## Current Goal-Loop Resume Checkpoint
 

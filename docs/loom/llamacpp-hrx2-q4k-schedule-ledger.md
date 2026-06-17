@@ -10,33 +10,36 @@ bridges:
 ## Current Accepted HRX2 Route
 
 - Route:
-  `mul_mat_q4_k_q8_1_x4_hip_mmql64x32_pack2_gfx1100_k256_32768_r64_32768_c32_512_wg64`.
+  `mul_mat_q4_k_q8_1_x4_hip_vkm64x64_pack2_gfx1100_k256_32768_r64_32768_c64_512_wg128`.
 - Source:
   `sources/llama.cpp/ggml/src/ggml-hrx2/kernels/hip/mul_mat_vec_q4_k_q8_1_wave64.hip.cpp`,
-  export `hrx2_mul_mat_vec_q4_k_q8_1_x4_mmql64x32_pack2_wg64_u32`.
+  export `hrx2_mul_mat_vec_q4_k_q8_1_x4_vkm64x64_pack2_wg128_u32`.
 - Shape regime: prompt Q4_K x packed Q8_1/x4, `k % 256 == 0`,
-  `rows % 64 == 0`, `cols % 32 == 0`, p64 and p512 prompt rows.
-- Tile/workgroup: BM64 x BN32, WG64, wave64, single wave per workgroup.
-- Lane ownership: each lane owns four rows by two columns within each WNITER
-  slice; four WNITER slices cover BN32.
+  `rows % 64 == 0`, `cols % 64 == 0`, p64 and p512 prompt rows.
+- Tile/workgroup: BM64 x BN64, WG128, logical wave64, two waves per workgroup.
+  This follows the Vulkan medium K-quant integer-MMQ tuple
+  `BLOCK_SIZE=128/BM64/BN64/WM64/WN32/WMITER1/TM2/TN2/WARP64`.
+- Lane ownership: each lane owns two rows by two columns within each WNITER
+  slice; eight WNITER slices cover each wave's WN32 tile, and the two waves
+  cover BN64.
 - K loop: one Q8 block (`32` values) per barrier; `BK_STEP=1`.
 - A staging: Q4_K A payload, scale, and min are staged in LDS. The accepted
   pack2 cache stores four `i32` words per row/group, each combining two Q4
   pack4 payloads as `q0 | (q1 << 4)`, matching the Vulkan Q4_K MMQ prior.
-- B staging: packed Q8_1/x4 RHS stores 32 columns x eight `i32` payload words
+- B staging: packed Q8_1/x4 RHS stores 64 columns x eight `i32` payload words
   plus f32 d/s metadata.
 - Dot form: `__builtin_amdgcn_sudot4(false, qpack, true, rpack, 0, false)`.
-- Rollback: `GGML_HRX2_DISABLE_Q4_HIP_PACK2_PROMPT=1`.
+- Rollback: `GGML_HRX2_DISABLE_Q4_HIP_VKM64X64_PROMPT=1`.
 - Focused acceptance evidence:
-  `cache/hrx2/phase2a/q4-hip-pack2-ab-opgate-20260616-115924/`.
-  The route passed p64 and p512 Q4_K backend-op correctness, selected without
-  provider failures, and improved all focused Q4 rows by roughly 1.08x-1.35x
-  versus the previous HIP bridge.
+  `cache/hrx2/phase2a/q4-vkm64x64-default-opgate-20260616-124657/`.
+  The route passed p64 and p512 Q4_K backend-op correctness, selected by
+  default without provider failures, and improved focused prompt Q4 rows by
+  roughly 1.02x-1.25x versus the previous pack2 bridge.
 - Model acceptance evidence:
-  `cache/hrx2/phase2a/q4-hip-pack2-hrx2-smoke-20260616-120026/` and
-  `cache/hrx2/phase2a/q4-pack2-reduced-20260616-120046/`.
-  The reduced Q4 small-model slice reached about 0.55x Vulkan on p512 and
-  0.27x-0.29x Vulkan on p64 with zero CPU compute fallback.
+  `cache/hrx2/phase2a/q4-vkm64x64-hrx2-smoke-20260616-124520/` and
+  `cache/hrx2/phase2a/q4-vkm64x64-default-reduced-20260616-124844/`.
+  The reduced Q4 slice reached about 0.53x-0.61x Vulkan on p512 and
+  0.45x-0.50x Vulkan on p64 with zero CPU compute fallback.
 
 ## Previous HRX2 Loom Route
 
@@ -130,12 +133,16 @@ bridges:
 | ID | Prior Basis | Change | Expected Signal | Risk |
 | --- | --- | --- | --- | --- |
 | `q4-a-pack2` | Vulkan Q4_K MMQ | Keep the accepted HRX1-derived BM64/BN32 bridge, but stage A payload as four packed words per row using the Vulkan `vals0 | vals1 << 4` layout. Compute extracts low/high nibbles per `iqs`. | Accepted. Lowered LDS/A payload traffic and improved focused Q4 rows plus model smoke. | Keep rollback and revisit only if another schedule supersedes it. |
-| `q4-bkstep4-pack2` | Vulkan normal `MUL_MAT` MMQ | After `q4-a-pack2` passes, stage four K blocks per barrier with matching A/B scratch layout. | Tests Vulkan's lower barrier cadence while preserving corrected A packing. | Prior BK_STEP4 attempt regressed when applied to expanded-A route; only retry after A packing aligns. |
+| `q4-bkstep4-pack2` | Vulkan normal `MUL_MAT` MMQ | After `q4-a-pack2` passed, stage four K blocks per barrier with matching A/B scratch layout. | Rejected. Correctness passed and route selected, but p64 rows regressed about 5.8x-11.8x versus accepted pack2. Artifact: `cache/hrx2/phase2a/q4-pack2-bkstep4-opgate-20260616-122640/`. | Do not retry `BK_STEP=4` inside the same BM64/BN32 single-wave pack2 topology. |
+| `q4-vkm64x64-pack2` | Vulkan medium K-quant integer MMQ | Preserve pack2 Q4 A-cache and packed Q8_1/x4 RHS, but move from HRX1-derived `WG64/BM64/BN32/TM4/TN2` to Vulkan-medium `BLOCK_SIZE=128/BM64/BN64/WM64/WN32/WMITER1/TM2/TN2/WARP64`. | Accepted. Focused Q4 prompt rows improved 1.02x-1.25x, all six repeated model rows improved 1.10x-1.23x, and p512 now exceeds the Phase 2a target. Artifacts: `q4-vkm64x64-default-opgate-20260616-124657`, `q4-vkm64x64-default-reduced-20260616-124844`. | p64 is still only 0.45x-0.50x Vulkan, so do not keep pushing this exact axis; next work needs Q8_1 reuse/quantize or a larger schedule/fusion change. |
 | `q4-vulkan-large-tile` | Vulkan large K-quant MMQ | Move toward BM128/BN128 or BM128/BN64-style ownership with WMITER=1 and explicit per-lane multi-row/multi-col outputs. | Needed if BM64/BN32 topology is the main ceiling. | Large Loom rewrite; requires full prior matrix and compile-report/ISA comparison. |
 | `q4-hrx1-wave64-bridge` | HRX1 grouped MoE Q4_K | Build a llama.cpp-local dense `MUL_MAT` HIP bridge from the grouped core, replacing route indirection with direct columns. | Refutes whether the HRX1 single-wave schedule family beats current Loom. | Not directly comparable to Vulkan dense MMQ; should be diagnostic unless it clearly wins focused rows. |
 
-Current decision: `q4-a-pack2` is accepted as the production Q4_K prompt bridge.
-The next Q4 work should treat it as the baseline and bracket around documented
-axes only: K-step/barrier cadence, graph-level Q8_1 RHS reuse, or a larger
-Vulkan-style tile. p64 remains the weaker regime, so any p64-specific pivot
-should first prove itself in backend-op sweeps before full model integration.
+Current decision: `q4-vkm64x64-pack2` is accepted as the production Q4_K prompt
+bridge, with rollback `GGML_HRX2_DISABLE_Q4_HIP_VKM64X64_PROMPT=1`. The
+`q4-bkstep4-pack2` adjacent pivot was rejected after a focused backend-op
+sweep. The next Q4 work should treat VKM64x64 as the baseline and bracket
+around documented axes only: graph-level Q8_1 RHS reuse, quantize reuse, or a
+larger Vulkan-style tile. p64 remains the weaker regime, so any p64-specific
+pivot should first prove itself in backend-op sweeps before full model
+integration.
