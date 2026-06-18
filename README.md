@@ -23,7 +23,7 @@ rocm            symlink to a local ROCm nightly install
 ## ROCm Nightly
 
 Install ROCm from the official nightly tarball page:
-`https://rocm.nightlies.amd.com/tarball/`.
+`https://rocm.nightlies.amd.com/tarball-multi-arch/`.
 
 Pick a local install location outside this repository. For example:
 
@@ -39,7 +39,7 @@ it into the chosen install directory:
 
 ```bash
 cd "$ROCM_INSTALL_ROOT"
-curl -LO "https://rocm.nightlies.amd.com/tarball/therock-dist-linux-<gfx-target>-7.14.0a20260527.tar.gz"
+curl -LO "https://rocm.nightlies.amd.com/tarball-multi-arch/therock-dist-linux-<gfx-target>-7.14.0a20260527.tar.gz"
 tar -xzf "therock-dist-linux-<gfx-target>-7.14.0a20260527.tar.gz" -C "$ROCM_INSTALL"
 test -x "$ROCM_INSTALL/bin/amdclang++"
 ```
