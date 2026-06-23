@@ -9,12 +9,13 @@ repositories.
 
 ```text
 sources/
-  llama.cpp/    ROCm llama.cpp checkout, branch hrx-v2 for active HRX2 work
+  llama.cpp/    ROCm llama.cpp checkout for active development
   hrx-system/   HRX runtime checkout, branch main
 build/          local build trees and install trees
 cache/          local caches and profiling scratch
 docs/           workspace documentation
-  spike/        historic notes from the initial HRX llama.cpp bringup
+  v2land/       active notes for the current development push
+  archive/      preserved legacy notes and retired skills
 skills/         workspace-specific Codex skills
 tools/          sandbox, agent launcher, status, and gh proxy helpers
 rocm            symlink to a local ROCm nightly install
@@ -58,7 +59,7 @@ The bootstrap creates required directories, creates or verifies the `rocm`
 symlink, and clones:
 
 - `https://github.com/ROCm/hrx-system.git` on `main`
-- `https://github.com/ROCm/llama.cpp.git` on the active HRX2 branch
+- `https://github.com/ROCm/llama.cpp.git` on the active development branch
 
 It refuses to overwrite dirty or mismatched existing checkouts.
 
