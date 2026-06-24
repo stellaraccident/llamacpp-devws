@@ -1,0 +1,27 @@
+{
+  "$schema": "../schemas/kernel-spec.schema.json",
+  "id": "mul_mat_q4_k_f32",
+  "op": "MUL_MAT",
+  "source": "../kernels/mul_mat_q4_k_f32.loom",
+  "root_symbol": "@hrx2_mul_mat_q4_k_f32_static",
+  "export_name": "hrx2_mul_mat_q4_k_f32_static",
+  "types": {
+    "src0": "Q4_K",
+    "src1": "F32",
+    "dst": "F32"
+  },
+  "parameters": {
+    "k": {"config_key": "@hrx2.shape.k"},
+    "rows": {"config_key": "@hrx2.shape.rows"},
+    "cols": {"config_key": "@hrx2.shape.cols"},
+    "workgroup_size": {"config_key": "@hrx2.tuning.workgroup_size"}
+  },
+  "shape_domain": {
+    "k": {"min": 256, "max": 32768, "multiple_of": 256},
+    "rows": {"min": 1, "max": 32768},
+    "cols": {"min": 1, "max": 1024}
+  },
+  "tuning": {
+    "workgroup_size": [64, 128, 256]
+  }
+}

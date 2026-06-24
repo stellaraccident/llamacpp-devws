@@ -1,0 +1,97 @@
+[
+  {
+    "id": "oracle_link_only_quantize_q8_1_x4_f32_wg64",
+    "family": "quantize_q8_1_f32",
+    "op": "QUANTIZE",
+    "target_key": "__oracle_link_only__",
+    "source_id": "quantize_q8_1_f32",
+    "artifact_id": "quantize_q8_1_f32_bc",
+    "root_symbol": "@hrx2_vk_clone_quantize_q8_1_x4_f32",
+    "export_name": "hrx2_vk_clone_quantize_q8_1_x4_f32",
+    "loader_format": "amdgpu-hsaco",
+    "priority": 1000,
+    "abi": {
+      "binding_count": 2,
+      "parameter_count": 4,
+      "constant_byte_length": 8
+    },
+    "dispatch": {
+      "workgroup_size": [
+        64,
+        1,
+        1
+      ],
+      "rows_per_workgroup": 8,
+      "cols_per_workgroup": 1
+    },
+    "shape_domain": {
+      "name": "oracle_vulkan_q8_1_x4"
+    },
+    "supports": {
+      "src0_type": "F32",
+      "dst_type": "Q8_1",
+      "layout": "oracle_vulkan_packed_x4"
+    },
+    "evidence_summary": {
+      "phase": "oracle-vulkan-decode-q4k-q8x4",
+      "algorithm": "exact_quantize_q8_1_x4_subgroup_clustered_wg64",
+      "selection": "link-only root retention; C++ oracle path constructs the available route"
+    }
+  },
+  {
+    "id": "quantize_q8_1_f32_generic_wg32",
+    "family": "quantize_q8_1_f32",
+    "op": "QUANTIZE",
+    "target_key": "",
+    "source_id": "quantize_q8_1_f32",
+    "artifact_id": "quantize_q8_1_f32_bc",
+    "root_symbol": "@hrx2_quantize_q8_1_f32",
+    "export_name": "hrx2_quantize_q8_1_f32",
+    "loader_format": "amdgpu-hsaco",
+    "priority": 100,
+    "abi": {
+      "binding_count": 2,
+      "parameter_count": 9,
+      "constant_byte_length": 28
+    },
+    "dispatch": {
+      "workgroup_size": [
+        32,
+        1,
+        1
+      ],
+      "rows_per_workgroup": 1,
+      "cols_per_workgroup": 1
+    },
+    "shape_domain": {
+      "name": "generic_q8_1_quantize"
+    },
+    "specialization": {
+      "mode": "jit_config",
+      "bindings": [
+        {
+          "key": "@hrx2.quantize_q8_1.blocks",
+          "source": "shape.q8_1.blocks"
+        },
+        {
+          "key": "@hrx2.quantize_q8_1.ne1",
+          "source": "shape.q8_1.ne1"
+        },
+        {
+          "key": "@hrx2.quantize_q8_1.z_count",
+          "source": "shape.q8_1.z_count"
+        }
+      ]
+    },
+    "supports": {
+      "src0_type": "F32",
+      "dst_type": "Q8_1",
+      "layout": "contiguous"
+    },
+    "evidence_summary": {
+      "phase": "phase2a-q8_1-backplane",
+      "algorithm": "one_workgroup_per_32_value_rhs_block",
+      "ggml_cpu_reference": "approximate_prompt_path_only"
+    }
+  }
+]

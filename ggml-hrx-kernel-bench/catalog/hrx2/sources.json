@@ -1,0 +1,140 @@
+{
+  "rms_norm_f32": {
+    "path": "kernels/rms_norm_f32.loom"
+  },
+  "rms_norm_mul_f32": {
+    "path": "kernels/rms_norm_mul_f32.loom"
+  },
+  "add_rms_norm_mul_f32": {
+    "path": "kernels/add_rms_norm_mul_f32.loom"
+  },
+  "rms_norm_mul_quantize_q8_1_f32": {
+    "path": "kernels/rms_norm_mul_quantize_q8_1.loom"
+  },
+  "mul_mat_q8_0_f32": {
+    "path": "kernels/mul_mat_q8_0_f32.loom"
+  },
+  "quantize_q8_1_f32": {
+    "path": "kernels/quantize_q8_1.loom"
+  },
+  "mul_mat_f32_f32": {
+    "path": "kernels/mul_mat_f32_f32.loom"
+  },
+  "copy_f32_f16": {
+    "path": "kernels/copy_f32_f16.loom"
+  },
+  "cont_f32": {
+    "path": "kernels/cont_f32.loom"
+  },
+  "cont_set_rows_f32": {
+    "path": "kernels/cont_set_rows_f32.loom"
+  },
+  "swiglu_f32": {
+    "path": "kernels/swiglu_f32.loom"
+  },
+  "set_rows_f32": {
+    "path": "kernels/set_rows_f32.loom"
+  },
+  "rope_set_rows_f32": {
+    "path": "kernels/rope_set_rows_f32.loom"
+  },
+  "pointwise_f32": {
+    "path": "kernels/pointwise_f32.loom"
+  },
+  "sum_rows_f32": {
+    "path": "kernels/sum_rows_f32.loom"
+  },
+  "get_rows_f32": {
+    "path": "kernels/get_rows_f32.loom"
+  },
+  "get_rows_moe_weights_f32": {
+    "path": "kernels/get_rows_moe_weights_f32.loom"
+  },
+  "argsort_f32_i32": {
+    "path": "kernels/argsort_f32_i32.loom"
+  },
+  "rope_neox_f32": {
+    "path": "kernels/rope_neox_f32.loom"
+  },
+  "rope_normal_f32": {
+    "path": "kernels/rope_normal_f32.loom"
+  },
+  "soft_max_f32": {
+    "path": "kernels/soft_max_f32.loom"
+  },
+  "mul_mat_f16_f32_batched": {
+    "path": "kernels/mul_mat_f16_f32_batched.loom"
+  },
+  "mul_mat_q4_k_f32": {
+    "path": "kernels/mul_mat_q4_k_f32.loom"
+  },
+  "mul_mat_vec_q4_k_q8_1_f32_serial2": {
+    "path": "kernels/mul_mat_vec_q4_k_q8_1_f32_serial2.loom"
+  },
+  "mul_mat_q4_k_swiglu_f32": {
+    "path": "kernels/mul_mat_q4_k_swiglu_f32.loom"
+  },
+  "mul_mat_q4_k_packed_q8_1_x4_swiglu_f32": {
+    "path": "kernels/mul_mat_q4_k_packed_q8_1_x4_swiglu_f32.loom"
+  },
+  "mul_mat_q5_k_f32": {
+    "path": "kernels/mul_mat_q5_k_f32.loom"
+  },
+  "mul_mat_vec_q5_k_q8_1_f32_vk_clone": {
+    "path": "kernels/mul_mat_vec_q5_k_q8_1_f32_vk_clone.loom"
+  },
+  "mul_mat_vec_q5_k_q8_1_f32_vk_clone_vcache": {
+    "path": "kernels/mul_mat_vec_q5_k_q8_1_f32_vk_clone_vcache.loom"
+  },
+  "mul_mat_vec_q5_k_q8_1_f32_vk_clone_probe": {
+    "path": "kernels/mul_mat_vec_q5_k_q8_1_f32_vk_clone_probe.loom"
+  },
+  "mul_mat_vec_q6_k_f32_f32_vk_clone": {
+    "path": "kernels/mul_mat_vec_q6_k_f32_f32_vk_clone.loom"
+  },
+  "mul_mat_vec_q6_k_f32_f32_down_k8192_r3072": {
+    "path": "kernels/mul_mat_vec_q6_k_f32_f32_down_k8192_r3072.loom"
+  },
+  "mul_mat_vec_q6_k_f32_f32_out_k3072_r200064_direct_scales": {
+    "path": "kernels/mul_mat_vec_q6_k_f32_f32_out_k3072_r200064_direct_scales.loom"
+  },
+  "mul_mat_vec_f16_f32_f32_vk_clone": {
+    "path": "kernels/mul_mat_vec_f16_f32_f32_vk_clone.loom"
+  },
+  "mul_mat_vec_f16_f32_f32_vk_clone_k768": {
+    "path": "kernels/mul_mat_vec_f16_f32_f32_vk_clone_k768.loom"
+  },
+  "mul_mat_vec_p021_f16_f32_vk_clone": {
+    "path": "kernels/mul_mat_vec_p021_f16_f32_vk_clone.loom"
+  },
+  "mul_mat_q6_k_f32": {
+    "path": "kernels/mul_mat_q6_k_f32.loom"
+  },
+  "rope_neox_f32_freq": {
+    "path": "kernels/rope_neox_f32_freq.loom"
+  },
+  "mul_mat_id_q4_k_f32": {
+    "path": "kernels/mul_mat_id_q4_k_f32.loom"
+  },
+  "mul_mat_id_q5_k_f32": {
+    "path": "kernels/mul_mat_id_q5_k_f32.loom"
+  },
+  "mul_mat_id_q6_k_f32": {
+    "path": "kernels/mul_mat_id_q6_k_f32.loom"
+  },
+  "get_rows_q8_0_f32": {
+    "path": "kernels/get_rows_q8_0_f32.loom"
+  },
+  "get_rows_q6_k_f32": {
+    "path": "kernels/get_rows_q6_k_f32.loom"
+  },
+  "get_rows_q4_k_f32": {
+    "path": "kernels/get_rows_q4_k_f32.loom"
+  },
+  "get_rows_q5_k_f32": {
+    "path": "kernels/get_rows_q5_k_f32.loom"
+  },
+  "softmax_kqv_f32_f16": {
+    "path": "kernels/softmax_kqv_f32_f16.loom"
+  }
+}

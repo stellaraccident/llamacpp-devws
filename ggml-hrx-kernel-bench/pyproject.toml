@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ggml-hrx-kernel-bench"
+version = "0.1.0"
+description = "Standalone GGML HRX Loom kernel development and tuning workbench"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+  {name = "GGML HRX Contributors"}
+]
+dependencies = []
+
+[project.optional-dependencies]
+numpy = ["numpy>=1.26"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+ggml-hrx-kernel-bench = "ggml_hrx_kernel_bench.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

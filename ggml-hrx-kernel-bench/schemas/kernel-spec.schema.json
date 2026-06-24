@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ggml-hrx-kernel-bench/kernel-spec.schema.json",
+  "title": "GGML HRX Kernel Spec",
+  "type": "object",
+  "required": ["id", "op", "source", "root_symbol", "parameters"],
+  "properties": {
+    "id": {"type": "string"},
+    "op": {"type": "string"},
+    "source": {"type": "string"},
+    "root_symbol": {"type": "string"},
+    "export_name": {"type": "string"},
+    "types": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "config_key": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "shape_domain": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "tuning": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
