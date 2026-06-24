@@ -1,6 +1,6 @@
-amdgpu.target<gfx1151> @hrx2_vk_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_vk_gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@hrx2_vk_gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_f16_f32_f32") @hrx2_vk_clone_mul_mat_vec_f16_f32_f32(
+kernel.def target(@hrx2_vk_gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_f16_f32_f32") @hrx2_vk_clone_mul_mat_vec_f16_f32_f32(
     %stride_d: index,
     %ne12: index) {
   %one = index.constant 1 : index
@@ -143,7 +143,7 @@ kernel.def target(@hrx2_vk_gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_f16
   kernel.return
 }
 
-kernel.def target(@hrx2_vk_gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_f16_f32_f32_cont") @hrx2_vk_clone_mul_mat_vec_f16_f32_f32_cont() {
+kernel.def target(@hrx2_vk_gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_f16_f32_f32_cont") @hrx2_vk_clone_mul_mat_vec_f16_f32_f32_cont() {
   %one = index.constant 1 : index
   %sixtyfour = index.constant 64 : index
   %twentyfour = index.constant 24 : index

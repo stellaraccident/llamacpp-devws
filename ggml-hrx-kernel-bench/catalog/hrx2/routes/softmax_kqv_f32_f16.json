@@ -3,7 +3,7 @@
     "id": "softmax_kqv_f32_f16_decode_kv256_d128_h24_hkv8_wg64_rows2",
     "family": "softmax_kqv_f32_f16",
     "op": "CONT",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "softmax_kqv_f32_f16",
     "artifact_id": "softmax_kqv_f32_f16_bc",
     "root_symbol": "@hrx2_softmax_kqv_f32_f16_decode_rows2",

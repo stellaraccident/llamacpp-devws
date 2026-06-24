@@ -6,9 +6,9 @@ config.def @hrx2.shape.cols = 1 : index
 
 config.def @hrx2.tuning.workgroup_size = 64 : index
 
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q4_k_packed_q8_1_x4_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_q8_1_x4_swiglu_f32_static() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q4_k_packed_q8_1_x4_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_q8_1_x4_swiglu_f32_static() {
   %one = index.constant 1 : index
   %rows = config.get @hrx2.shape.rows : index
   %workgroup_size = config.get @hrx2.tuning.workgroup_size : index

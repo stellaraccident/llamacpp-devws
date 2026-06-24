@@ -1,8 +1,8 @@
-amdgpu.target<gfx1151> @hrx2_vk_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_vk_gfx1100_wave64 {subgroup_size = 64}
 
 config.decl @hrx2.shape.set_rows.ne1 : %value: index where [range(%value, 1, 1048576)]
 
-kernel.def target(@hrx2_vk_gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_q5_k_q8_1_f32_vcache") @hrx2_vk_clone_mul_mat_vec_q5_k_q8_1_f32_vcache(%stride_d: index) {
+kernel.def target(@hrx2_vk_gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_q5_k_q8_1_f32_vcache") @hrx2_vk_clone_mul_mat_vec_q5_k_q8_1_f32_vcache(%stride_d: index) {
   %one = index.constant 1 : index
   %sixtyfour = index.constant 64 : index
   kernel.launch.config workgroups(%stride_d, %one, %one) workgroup_size(%sixtyfour, %one, %one) : index

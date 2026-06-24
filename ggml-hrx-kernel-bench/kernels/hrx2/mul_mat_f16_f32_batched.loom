@@ -16,9 +16,9 @@ config.decl @hrx2.shape.mul_mat_f16.dst_stride_ne2 : %value: index where [range(
 config.decl @hrx2.shape.mul_mat_f16.dst_stride_ne3 : %value: index where [range(%value, 1, 104857600)]
 config.decl @hrx2.tuning.mul_mat_f16.workgroup_size : %value: index where [range(%value, 32, 1024), mul(%value, 32)]
 
-amdgpu.target<gfx1151> @hrx2_kq16_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_kq16_gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_pack_k_f16_p512") @hrx2_mul_mat_f16_f32_batched_kq_pack_k_f16_p512() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_pack_k_f16_p512") @hrx2_mul_mat_f16_f32_batched_kq_pack_k_f16_p512() {
   %unit = index.constant 1 : index
   %workgroups = index.constant 2048 : index
   %workgroup_size = index.constant 256 : index
@@ -64,7 +64,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_pack_q_f32_f16_p512") @hrx2_mul_mat_f16_f32_batched_kq_pack_q_f32_f16_p512() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_pack_q_f32_f16_p512") @hrx2_mul_mat_f16_f32_batched_kq_pack_q_f32_f16_p512() {
   %unit = index.constant 1 : index
   %workgroups = index.constant 6144 : index
   %workgroup_size = index.constant 256 : index
@@ -110,7 +110,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_split_p512") @hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_split_p512() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_split_p512") @hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_split_p512() {
   %unit = index.constant 1 : index
   %row_tiles = index.constant 4 : index
   %col_tiles = index.constant 4 : index
@@ -641,7 +641,7 @@ kernel.def export("hrx2_mul_mat_f16_f32_batched_cols8") @hrx2_mul_mat_f16_f32_ba
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma16x16_nop") @hrx2_mul_mat_f16_f32_batched_kq_wmma16x16_nop() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma16x16_nop") @hrx2_mul_mat_f16_f32_batched_kq_wmma16x16_nop() {
   %unit = index.constant 1 : index
   %thirty_two = index.constant 32 : index
   %sixty_four = index.constant 64 : index
@@ -666,7 +666,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma16x16") @hrx2_mul_mat_f16_f32_batched_kq_wmma16x16() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma16x16") @hrx2_mul_mat_f16_f32_batched_kq_wmma16x16() {
   %unit = index.constant 1 : index
   %workgroups_x = index.constant 32 : index
   %workgroups_y = index.constant 1 : index
@@ -1206,7 +1206,7 @@ kernel.def export("hrx2_mul_mat_f16_f32_batched_cols8_contiguous") @hrx2_mul_mat
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_f32rhs_to_f16") @hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_f32rhs_to_f16() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_f32rhs_to_f16") @hrx2_mul_mat_f16_f32_batched_kq_wmma128x128_f32rhs_to_f16() {
   %unit = index.constant 1 : index
   %one_twenty_seven = index.constant 127 : index
   %one_twenty_eight = index.constant 128 : index
@@ -1440,7 +1440,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_contiguous") @hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_contiguous() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_contiguous") @hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_contiguous() {
   %unit = index.constant 1 : index
   %one_twenty_seven = index.constant 127 : index
   %one_twenty_eight = index.constant 128 : index
@@ -1700,7 +1700,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_plain") @hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_plain() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_plain") @hrx2_mul_mat_f16_f32_batched_kqv_wmma128x128_plain() {
   %unit = index.constant 1 : index
   %one_twenty_seven = index.constant 127 : index
   %one_twenty_eight = index.constant 128 : index
@@ -1960,7 +1960,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k128_r256") @hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k128_r256() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k128_r256") @hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k128_r256() {
   %unit = index.constant 1 : index
   %sixty_three = index.constant 63 : index
   %sixty_four = index.constant 64 : index
@@ -2210,7 +2210,7 @@ kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batche
   kernel.return
 }
 
-kernel.def target(@hrx2_kq16_gfx1151_wave64) export("hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k256_r128") @hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k256_r128() {
+kernel.def target(@hrx2_kq16_gfx1100_wave64) export("hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k256_r128") @hrx2_mul_mat_f16_f32_batched_wmma64x64_f16acc_p64_k256_r128() {
   %unit = index.constant 1 : index
   %sixty_three = index.constant 63 : index
   %sixty_four = index.constant 64 : index

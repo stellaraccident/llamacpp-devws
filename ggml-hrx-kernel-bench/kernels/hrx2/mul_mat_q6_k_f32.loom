@@ -3,9 +3,9 @@ config.decl @hrx2.shape.rows : %value: index where [range(%value, 1, 262144)]
 config.decl @hrx2.shape.cols : %value: index where [range(%value, 1, 1024)]
 config.decl @hrx2.tuning.workgroup_size : %value: index where [range(%value, 32, 256), mul(%value, 32)]
 
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc") @hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc") @hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc() {
   %unit = index.constant 1 : index
   %sixty_three = index.constant 63 : index
   %sixty_four = index.constant 64 : index
@@ -655,7 +655,7 @@ kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q6_k_f32_wmm
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q6_k_f32_wmma128x128_f16acc") @hrx2_mul_mat_q6_k_f32_wmma128x128_f16acc() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q6_k_f32_wmma128x128_f16acc") @hrx2_mul_mat_q6_k_f32_wmma128x128_f16acc() {
   %unit = index.constant 1 : index
   %one_twenty_seven = index.constant 127 : index
   %one_twenty_eight = index.constant 128 : index
@@ -2741,7 +2741,7 @@ kernel.def export("hrx2_mul_mat_q6_k_f32_rows2_wg32_static") @hrx2_mul_mat_q6_k_
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc_splitk2") @hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc_splitk2() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc_splitk2") @hrx2_mul_mat_q6_k_f32_wmma64x64_f16acc_splitk2() {
   %unit = index.constant 1 : index
   %two = index.constant 2 : index
   %sixty_three = index.constant 63 : index

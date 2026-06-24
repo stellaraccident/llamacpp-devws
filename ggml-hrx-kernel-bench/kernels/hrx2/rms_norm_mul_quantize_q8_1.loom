@@ -1,6 +1,6 @@
-amdgpu.target<gfx1151> @hrx2_gfx1151_wave32 {subgroup_size = 32}
+amdgpu.target<gfx1100> @hrx2_gfx1100_wave32 {subgroup_size = 32}
 
-kernel.def target(@hrx2_gfx1151_wave32) export("hrx2_rms_norm_scale_f32_n3072_r1_wg32") @hrx2_rms_norm_scale_f32_n3072_r1_wg32() {
+kernel.def target(@hrx2_gfx1100_wave32) export("hrx2_rms_norm_scale_f32_n3072_r1_wg32") @hrx2_rms_norm_scale_f32_n3072_r1_wg32() {
   %one = index.constant 1 : index
   %thirtytwo = index.constant 32 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%thirtytwo, %one, %one) : index
@@ -42,7 +42,7 @@ kernel.def target(@hrx2_gfx1151_wave32) export("hrx2_rms_norm_scale_f32_n3072_r1
   kernel.return
 }
 
-kernel.def target(@hrx2_gfx1151_wave32) export("hrx2_rms_norm_mul_quantize_q8_1_x4_f32_scale_buffer_scalar_store") @hrx2_rms_norm_mul_quantize_q8_1_x4_f32_scale_buffer_scalar_store() {
+kernel.def target(@hrx2_gfx1100_wave32) export("hrx2_rms_norm_mul_quantize_q8_1_x4_f32_scale_buffer_scalar_store") @hrx2_rms_norm_mul_quantize_q8_1_x4_f32_scale_buffer_scalar_store() {
   %one = index.constant 1 : index
   %twentyfour = index.constant 24 : index
   %thirtytwo = index.constant 32 : index
@@ -160,7 +160,7 @@ kernel.def target(@hrx2_gfx1151_wave32) export("hrx2_rms_norm_mul_quantize_q8_1_
   kernel.return
 }
 
-kernel.def target(@hrx2_gfx1151_wave32) export("hrx2_rms_norm_mul_quantize_q8_1_x4_f32_recompute") @hrx2_rms_norm_mul_quantize_q8_1_x4_f32_recompute() {
+kernel.def target(@hrx2_gfx1100_wave32) export("hrx2_rms_norm_mul_quantize_q8_1_x4_f32_recompute") @hrx2_rms_norm_mul_quantize_q8_1_x4_f32_recompute() {
   %one = index.constant 1 : index
   %twentyfour = index.constant 24 : index
   %thirtytwo = index.constant 32 : index

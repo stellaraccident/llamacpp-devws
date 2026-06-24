@@ -10,7 +10,7 @@ config.decl @hrx2.shape.soft_max.mask_ne2 : %value: index where [range(%value, 1
 config.decl @hrx2.shape.soft_max.mask_ne3 : %value: index where [range(%value, 1, 4096)]
 config.decl @hrx2.tuning.soft_max.workgroup_size : %value: index where [range(%value, 32, 1024), mul(%value, 32)]
 
-amdgpu.target<gfx1151> @hrx2_softmax_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_softmax_gfx1100_wave64 {subgroup_size = 64}
 
 kernel.def export("hrx2_soft_max_f32") @hrx2_soft_max_f32() {
   %unit = index.constant 1 : index
@@ -68,7 +68,7 @@ kernel.def export("hrx2_soft_max_f32") @hrx2_soft_max_f32() {
   kernel.return
 }
 
-kernel.def target(@hrx2_softmax_gfx1151_wave64) export("hrx2_soft_max_f32_mask_n256_wg64_lanes4") @hrx2_soft_max_f32_mask_n256_wg64_lanes4() {
+kernel.def target(@hrx2_softmax_gfx1100_wave64) export("hrx2_soft_max_f32_mask_n256_wg64_lanes4") @hrx2_soft_max_f32_mask_n256_wg64_lanes4() {
   %unit = index.constant 1 : index
   %nrows = config.get @hrx2.shape.soft_max.nrows : index
   %workgroup_size = config.get @hrx2.tuning.soft_max.workgroup_size : index
@@ -192,7 +192,7 @@ kernel.def target(@hrx2_softmax_gfx1151_wave64) export("hrx2_soft_max_f32_mask_n
   kernel.return
 }
 
-kernel.def target(@hrx2_softmax_gfx1151_wave64) export("hrx2_soft_max_f32_mask_n512_wg64_lanes8") @hrx2_soft_max_f32_mask_n512_wg64_lanes8() {
+kernel.def target(@hrx2_softmax_gfx1100_wave64) export("hrx2_soft_max_f32_mask_n512_wg64_lanes8") @hrx2_soft_max_f32_mask_n512_wg64_lanes8() {
   %unit = index.constant 1 : index
   %nrows = config.get @hrx2.shape.soft_max.nrows : index
   %workgroup_size = config.get @hrx2.tuning.soft_max.workgroup_size : index

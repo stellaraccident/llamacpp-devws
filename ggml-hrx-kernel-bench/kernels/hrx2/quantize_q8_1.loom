@@ -2,8 +2,8 @@ config.decl @hrx2.quantize_q8_1.blocks : %value: index where [range(%value, 1, 1
 config.decl @hrx2.quantize_q8_1.ne1 : %value: index where [range(%value, 1, 512)]
 config.decl @hrx2.quantize_q8_1.z_count : %value: index where [range(%value, 1, 16)]
 
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave64 {subgroup_size = 64}
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave32 {subgroup_size = 32}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave32 {subgroup_size = 32}
 
 kernel.def export("hrx2_quantize_q8_1_f32") @hrx2_quantize_q8_1_f32() {
   %blocks = config.get @hrx2.quantize_q8_1.blocks : index
@@ -147,7 +147,7 @@ kernel.def export("hrx2_quantize_q8_1_f32") @hrx2_quantize_q8_1_f32() {
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave32) export("hrx2_vk_clone_quantize_q8_1_x4_f32_wave32") @hrx2_vk_clone_quantize_q8_1_x4_f32_wave32() {
+kernel.def target(@hrx2_oracle_gfx1100_wave32) export("hrx2_vk_clone_quantize_q8_1_x4_f32_wave32") @hrx2_vk_clone_quantize_q8_1_x4_f32_wave32() {
   %unit = index.constant 1 : index
   %workgroups = index.constant 32 : index
   %workgroup_size = index.constant 32 : index
@@ -266,7 +266,7 @@ kernel.def target(@hrx2_oracle_gfx1151_wave32) export("hrx2_vk_clone_quantize_q8
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_vk_clone_quantize_q8_1_x4_f32") @hrx2_vk_clone_quantize_q8_1_x4_f32() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_vk_clone_quantize_q8_1_x4_f32") @hrx2_vk_clone_quantize_q8_1_x4_f32() {
   %unit = index.constant 1 : index
   %workgroups = index.constant 32 : index
   %workgroup_size = index.constant 1 : index

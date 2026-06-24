@@ -3,9 +3,9 @@ config.decl @hrx2.shape.rows : %value: index where [range(%value, 3072, 3072), m
 config.decl @hrx2.shape.cols : %value: index where [range(%value, 1, 1)]
 config.decl @hrx2.tuning.workgroup_size : %value: index where [range(%value, 64, 64), mul(%value, 64)]
 
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_q4_k_q8_1_f32_serial2") @hrx2_vk_clone_mul_mat_vec_q4_k_q8_1_f32_serial2() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_q4_k_q8_1_f32_serial2") @hrx2_vk_clone_mul_mat_vec_q4_k_q8_1_f32_serial2() {
   %one = index.constant 1 : index
   %two = index.constant 2 : index
   %rows = config.get @hrx2.shape.rows : index

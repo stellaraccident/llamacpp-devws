@@ -3,7 +3,7 @@ config.decl @hrx2.shape.rows : %value: index where [range(%value, 1, 32768)]
 config.decl @hrx2.shape.cols : %value: index where [range(%value, 1, 512)]
 config.decl @hrx2.tuning.workgroup_size : %value: index where [range(%value, 64, 256), mul(%value, 64)]
 
-amdgpu.target<gfx1151> @hrx2_oracle_gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @hrx2_oracle_gfx1100_wave64 {subgroup_size = 64}
 
 func.template<hrx2.q4_k_f32.block_params> priority(1) @q4_k_f32_block_params(%weight: buffer, %linear_block: index, %group: index) -> (f32, f32) {
   %base = index.constant 0 : offset
@@ -519,7 +519,7 @@ kernel.def export("hrx2_mul_mat_q4_k_q8_1_swiglu_f32_static") @hrx2_mul_mat_q4_k
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q4_k_packed_q8_1_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_q8_1_swiglu_f32_static() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q4_k_packed_q8_1_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_q8_1_swiglu_f32_static() {
   %unit = index.constant 1 : index
   %rows = config.get @hrx2.shape.rows : index
   %cols = config.get @hrx2.shape.cols : index
@@ -593,7 +593,7 @@ kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q4_k_packed_
   kernel.return
 }
 
-kernel.def target(@hrx2_oracle_gfx1151_wave64) export("hrx2_mul_mat_q4_k_packed_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_swiglu_f32_static() {
+kernel.def target(@hrx2_oracle_gfx1100_wave64) export("hrx2_mul_mat_q4_k_packed_swiglu_f32_static") @hrx2_mul_mat_q4_k_packed_swiglu_f32_static() {
   %unit = index.constant 1 : index
   %rows = config.get @hrx2.shape.rows : index
   %cols = config.get @hrx2.shape.cols : index

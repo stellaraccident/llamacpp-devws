@@ -3,7 +3,7 @@
     "id": "rms_norm_f32_n64_r60_vector_vw4_wg1024",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -58,7 +58,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -66,7 +66,7 @@
     "id": "rms_norm_f32_n1025_r60_vector_tail_vw2_wg64",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -121,7 +121,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -255,7 +255,7 @@
     "id": "rms_norm_f32_n4096_r1_vector_vw4_wg512",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -310,7 +310,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -318,7 +318,7 @@
     "id": "rms_norm_f32_n4096_r32_scalar_wg1024",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_scalar",
@@ -369,7 +369,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -377,7 +377,7 @@
     "id": "rms_norm_f32_n512_r32_vector_vw2_wg512",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -432,7 +432,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -440,7 +440,7 @@
     "id": "rms_norm_f32_n8192_r1_vector_vw4_wg1024",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -495,7 +495,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },
@@ -503,7 +503,7 @@
     "id": "rms_norm_f32_n8192_r32_vector_vw4_wg512",
     "family": "rms_norm_f32",
     "op": "RMS_NORM",
-    "target_key": "gfx1151",
+    "target_key": "gfx1100",
     "source_id": "rms_norm_f32",
     "artifact_id": "rms_norm_f32_bc",
     "root_symbol": "@hrx2_rms_norm_f32_static_vector_tail",
@@ -558,7 +558,7 @@
       "layout": "contiguous"
     },
     "evidence_summary": {
-      "phase": "rms-norm-standalone-done-gfx1151",
+      "phase": "rms-norm-standalone-done-gfx1100",
       "ggml_cpu_reference": "required"
     }
   },

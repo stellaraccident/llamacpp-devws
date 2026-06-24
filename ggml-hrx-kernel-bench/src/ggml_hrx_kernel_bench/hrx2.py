@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
-import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .family_specs import resolve_binding_value
+from .family_specs import concrete_shapes_for_route, resolve_binding_value
+from .observed_shapes import ObservedShapeCatalog
 from .specs import file_sha256
 
 
@@ -21,14 +20,6 @@ KERNEL_DEF_RE = re.compile(
     r"kernel\.def(?:\s+target\([^)]*\))?(?:\s+export\(\"(?P<export>[^\"]+)\"\))?\s+(?P<root>@[A-Za-z0-9_.$-]+)"
 )
 CONFIG_DECL_RE = re.compile(r"config\.decl\s+(?P<key>@[A-Za-z0-9_.$-]+)")
-
-DEFAULT_K_VALUES = [256, 512, 1024, 2048, 3072, 4096, 5120, 6144, 8192, 11008, 14336, 16384, 28672, 32768]
-DEFAULT_ROW_VALUES = [1, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 3072, 4096, 8192, 16384, 32768]
-DEFAULT_COL_VALUES = [1, 16, 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024]
-DEFAULT_NCOLS_VALUES = [1, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 11008, 32768, 65536]
-DEFAULT_NROWS_VALUES = [1, 2, 4, 8, 16, 32, 60, 64, 128, 256, 512, 1024, 4096, 16384, 1048576]
-DEFAULT_NDIMS_VALUES = [32, 64, 80, 96, 128]
-
 
 @dataclass(frozen=True)
 class KernelSource:
@@ -176,7 +167,7 @@ def build_manifest(kernel_dir: Path, catalog_dir: Path, *, original_root: Path |
                 "imported_sha256": file_sha256(path),
                 "original_path": original_path,
                 "original_sha256": original_sha256,
-                "mechanical_rewrites": ["gfx1100->gfx1151"] if original_sha256 and original_sha256 != file_sha256(path) else [],
+                "mechanical_rewrites": ["content differs from original HRX2 source"] if original_sha256 and original_sha256 != file_sha256(path) else [],
                 "root_symbols": list(roots),
                 "export_names": list(exports),
                 "config_keys": list(parse_config_keys(path)),
@@ -265,77 +256,14 @@ def route_short_name(route: dict[str, Any]) -> str:
     return route_id[:48] or "route"
 
 
-def _domain_min_max(domain: dict[str, Any], name: str) -> tuple[int | None, int | None]:
-    return domain.get(f"{name}_min"), domain.get(f"{name}_max")
-
-
-def _aligned(value: int, multiple: int | None, *, direction: str) -> int:
-    if not multiple or multiple <= 1:
-        return value
-    if direction == "up":
-        return int(math.ceil(value / multiple) * multiple)
-    return int(math.floor(value / multiple) * multiple)
-
-
-def _choose_from_domain(
-    domain: dict[str, Any],
-    guards: dict[str, Any],
-    name: str,
-    defaults: list[int],
-    *,
-    sweep: str,
-) -> list[int]:
-    lo, hi = _domain_min_max(domain, name)
-    if lo is None and hi is None:
-        return []
-    lo = int(lo if lo is not None else min(defaults))
-    hi = int(hi if hi is not None else max(defaults))
-    multiple = guards.get(f"{name}_multiple_of")
-    multiple_i = int(multiple) if multiple else None
-    if lo == hi:
-        return [lo]
-    values = [value for value in defaults if lo <= value <= hi]
-    if sweep == "minimal":
-        value = values[0] if values else _aligned(lo, multiple_i, direction="up")
-        return [value] if value <= hi else []
-    selected = {_aligned(lo, multiple_i, direction="up"), _aligned(hi, multiple_i, direction="down")}
-    if values:
-        selected.add(values[len(values) // 2])
-    return sorted(value for value in selected if lo <= value <= hi and (not multiple_i or value % multiple_i == 0))
-
-
-def concrete_shape(route: dict[str, Any], *, sweep: str) -> dict[str, int]:
-    shapes = concrete_shapes(route, sweep=sweep)
+def concrete_shape(route: dict[str, Any], *, sweep: str, observed_shapes: ObservedShapeCatalog | None = None) -> dict[str, int]:
+    shapes = concrete_shapes(route, sweep=sweep, observed_shapes=observed_shapes)
     return shapes[0] if shapes else {}
 
 
-def concrete_shapes(route: dict[str, Any], *, sweep: str) -> list[dict[str, int]]:
-    domain = dict(route.get("shape_domain") or {})
-    guards = dict(route.get("shape_guards") or {})
-    values_by_name: dict[str, list[int]] = {}
-    for name, defaults in [
-        ("k", DEFAULT_K_VALUES),
-        ("rows", DEFAULT_ROW_VALUES),
-        ("cols", DEFAULT_COL_VALUES),
-        ("ncols", DEFAULT_NCOLS_VALUES),
-        ("nrows", DEFAULT_NROWS_VALUES),
-        ("n_dims", DEFAULT_NDIMS_VALUES),
-    ]:
-        values = _choose_from_domain(domain, guards, name, defaults, sweep=sweep)
-        if values:
-            values_by_name[name] = values
-    if not values_by_name:
-        return [{}]
-    names = list(values_by_name)
-    shapes: list[dict[str, int]] = []
-    for combo in itertools.product(*(values_by_name[name] for name in names)):
-        shape = dict(zip(names, combo, strict=True))
-        if "ncols" in shape and "cols" not in shape:
-            shape["cols"] = shape["ncols"]
-        if "nrows" in shape and "rows" not in shape:
-            shape["rows"] = shape["nrows"]
-        shapes.append(shape)
-    return shapes
+def concrete_shapes(route: dict[str, Any], *, sweep: str, observed_shapes: ObservedShapeCatalog | None = None) -> list[dict[str, int]]:
+    observed = observed_shapes.shapes_for_route(route) if observed_shapes else ()
+    return concrete_shapes_for_route(route, sweep=sweep, observed_shapes=observed)
 
 
 def build_config(route: dict[str, Any], shape: dict[str, int]) -> tuple[dict[str, str], dict[str, int | str], list[str]]:
@@ -382,6 +310,7 @@ def route_candidates(
     families: set[str] | None = None,
     limit: int | None = None,
     sweep: str = "minimal",
+    observed_shapes: ObservedShapeCatalog | None = None,
 ) -> list[Candidate]:
     sources = load_sources_by_id(kernel_dir, catalog_dir)
     candidates: list[Candidate] = []
@@ -391,7 +320,7 @@ def route_candidates(
             continue
         source_id = str(route.get("source_id") or "")
         source = sources.get(source_id)
-        for shape in concrete_shapes(route, sweep=sweep):
+        for shape in concrete_shapes(route, sweep=sweep, observed_shapes=observed_shapes):
             config, values, missing = build_config(route, shape)
             status = "planned" if source and not missing else "missing_config"
             message = None
@@ -443,11 +372,16 @@ def source_only_candidates(
     routed_source_ids = {str(route.get("source_id")) for route in iter_routes(catalog_dir) if route.get("source_id")}
     sources = load_sources_by_id(kernel_dir, catalog_dir)
     candidates: list[Candidate] = []
+    seen_source_hashes: set[str] = set()
     for source in sorted(sources.values(), key=lambda item: item.source_id):
         if source.source_id in routed_source_ids:
             continue
         if families and source.source_id not in families and source.path.stem not in families:
             continue
+        source_hash = file_sha256(source.path)
+        if source_hash in seen_source_hashes:
+            continue
+        seen_source_hashes.add(source_hash)
         for index, root in enumerate(source.root_symbols):
             candidates.append(
                 Candidate(
@@ -482,9 +416,10 @@ def all_candidates(
     families: set[str] | None = None,
     limit: int | None = None,
     sweep: str = "minimal",
-    include_source_only: bool = True,
+    observed_shapes: ObservedShapeCatalog | None = None,
+    include_source_only: bool = False,
 ) -> list[Candidate]:
-    candidates = route_candidates(kernel_dir, catalog_dir, families=families, limit=limit, sweep=sweep)
+    candidates = route_candidates(kernel_dir, catalog_dir, families=families, limit=limit, sweep=sweep, observed_shapes=observed_shapes)
     if include_source_only and (limit is None or len(candidates) < limit):
         remaining = None if limit is None else limit - len(candidates)
         candidates.extend(source_only_candidates(kernel_dir, catalog_dir, families=families, limit=remaining))

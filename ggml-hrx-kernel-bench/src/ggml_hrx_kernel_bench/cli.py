@@ -14,6 +14,7 @@ from .hrx2 import (
     build_manifest,
 )
 from .ledger import LedgerWriter, utc_run_id
+from .observed_shapes import load_observed_shapes, read_observations_jsonl, save_observed_shapes
 from .oracles import generate_oracle, write_workbench
 from .specs import KernelSpec, config_args, file_sha256, spec_sha256
 from .tools import CommandResult, run_command
@@ -24,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spec", type=Path, help="single legacy kernel spec")
     parser.add_argument("--kernel-source", type=Path, help="override source for --spec mode")
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--target", default="gfx1151")
+    parser.add_argument("--target", default="gfx1100")
     parser.add_argument("--rocm-path", type=Path)
     parser.add_argument("--loom-link", type=Path)
     parser.add_argument("--loom-compile", type=Path)
@@ -32,11 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--values", type=Path, help="JSON object containing concrete parameter values for --spec mode")
     parser.add_argument("--hrx2-kernel-dir", type=Path, default=DEFAULT_HRX2_KERNEL_DIR)
     parser.add_argument("--hrx2-catalog-dir", type=Path, default=DEFAULT_HRX2_CATALOG_DIR)
+    parser.add_argument("--observed-shapes", type=Path, help="observed shape metadata JSON; defaults to <catalog>/observed_shapes.json")
+    parser.add_argument("--shape-trace", type=Path, action="append", default=[], help="JSONL observed-shape trace to merge with accumulate-shapes")
     parser.add_argument("--original-hrx2-root", type=Path, help="optional original HRX2 root for import hash comparison")
     parser.add_argument("--family", action="append", default=[], help="family/source/route filter; may be repeated or comma separated")
     parser.add_argument("--limit", type=int, help="limit corpus candidates")
-    parser.add_argument("--sweep", choices=["minimal", "edge"], default="minimal")
-    parser.add_argument("--no-source-only", action="store_true", help="exclude source-only/probe kernel rows")
+    parser.add_argument("--sweep", choices=["minimal", "edge", "observed"], default="minimal")
+    parser.add_argument("--include-source-only", action="store_true", help="include source-only/probe kernel rows in addition to route-backed catalog rows")
     parser.add_argument("--sanitizers", default="none", help="comma list, for example none,asan,tsan")
     parser.add_argument("--iterations", type=int, default=1)
     parser.add_argument("--warmup-iterations", type=int, default=0)
@@ -44,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("import-hrx2")
+    subparsers.add_parser("accumulate-shapes")
     subparsers.add_parser("plan")
     subparsers.add_parser("fixtures")
     subparsers.add_parser("link")
@@ -74,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "import-hrx2":
             return command_import(args, ledger)
+        if args.command == "accumulate-shapes":
+            return command_accumulate_shapes(args, ledger)
         if args.spec:
             return command_legacy_spec(args, config, ledger)
         return command_corpus(args, config, ledger)
@@ -114,6 +120,31 @@ def command_import(args: argparse.Namespace, ledger: LedgerWriter) -> int:
         },
     }
     ledger.append(row)
+    return 0
+
+
+def command_accumulate_shapes(args: argparse.Namespace, ledger: LedgerWriter) -> int:
+    if not args.shape_trace:
+        raise ValueError("accumulate-shapes requires at least one --shape-trace JSONL file")
+    path = observed_shapes_path(args)
+    catalog = load_observed_shapes(path)
+    observations = read_observations_jsonl(args.shape_trace)
+    before_count = len(catalog.rows)
+    catalog.merge(observations)
+    save_observed_shapes(path, catalog)
+    ledger.append(
+        {
+            "schema": "ggml_hrx_kernel_bench.ledger.v1",
+            "run_id": utc_run_id(),
+            "action": "accumulate-shapes",
+            "status": "ok",
+            "observed_shapes_path": str(path),
+            "trace_paths": [str(path) for path in args.shape_trace],
+            "input_observation_count": len(observations),
+            "row_count_before": before_count,
+            "row_count_after": len(catalog.rows),
+        }
+    )
     return 0
 
 
@@ -161,14 +192,20 @@ def command_corpus(args: argparse.Namespace, config: BenchConfig, ledger: Ledger
 
 def selected_candidates(args: argparse.Namespace) -> list[Candidate]:
     families = filter_set(args.family)
+    observed = load_observed_shapes(observed_shapes_path(args)) if args.sweep == "observed" else None
     return all_candidates(
         args.hrx2_kernel_dir,
         args.hrx2_catalog_dir,
         families=families,
         limit=args.limit,
         sweep=args.sweep,
-        include_source_only=not args.no_source_only,
+        observed_shapes=observed,
+        include_source_only=args.include_source_only,
     )
+
+
+def observed_shapes_path(args: argparse.Namespace) -> Path:
+    return args.observed_shapes or (args.hrx2_catalog_dir / "observed_shapes.json")
 
 
 def filter_set(values: list[str]) -> set[str] | None:

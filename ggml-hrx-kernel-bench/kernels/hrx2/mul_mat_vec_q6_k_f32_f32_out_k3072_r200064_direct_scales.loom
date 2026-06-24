@@ -11,9 +11,9 @@
 //   K:                      3072, 12 Q6_K blocks per row
 //   fusion_flags:           none
 
-amdgpu.target<gfx1151> @gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_out_direct_k3072_r200064") @hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_out_direct_k3072_r200064() {
+kernel.def target(@gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_out_direct_k3072_r200064") @hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_out_direct_k3072_r200064() {
   %unit = index.constant 1 : index
   %row_pairs = index.constant 100032 : index
   %workgroup_size = index.constant 64 : index

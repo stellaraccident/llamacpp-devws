@@ -11,9 +11,9 @@
 //   K:                      8192, 32 Q6_K blocks per row
 //   fusion_flags:           fused add/bias
 
-amdgpu.target<gfx1151> @gfx1151_wave64 {subgroup_size = 64}
+amdgpu.target<gfx1100> @gfx1100_wave64 {subgroup_size = 64}
 
-kernel.def target(@gfx1151_wave64) export("hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_down_k8192_r3072") @hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_down_k8192_r3072() {
+kernel.def target(@gfx1100_wave64) export("hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_down_k8192_r3072") @hrx2_vk_clone_mul_mat_vec_q6_k_f32_f32_down_k8192_r3072() {
   %unit = index.constant 1 : index
   %row_pairs = index.constant 1536 : index
   %workgroup_size = index.constant 64 : index
