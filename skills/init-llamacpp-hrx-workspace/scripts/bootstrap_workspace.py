@@ -42,6 +42,7 @@ REQUIRED_DIRS = (
     "build",
     "cache",
     "docs",
+    "programs",
     "skills",
     "tools",
     ".tmp",

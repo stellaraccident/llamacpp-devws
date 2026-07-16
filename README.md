@@ -11,8 +11,10 @@ repositories.
 sources/
   llama.cpp/    ROCm llama.cpp checkout for active development
   hrx-system/   HRX runtime checkout, branch main
+  hrx-demos/    standalone HRX applications and demos
 build/          local build trees and install trees
 cache/          local caches and profiling scratch
+programs/       untracked workspace-local developer programs
 docs/           workspace documentation
   v2land/       active notes for the current development push
   archive/      preserved legacy notes and retired skills
@@ -90,3 +92,21 @@ and then sources it.
 
 Agents should leave `direnv allow` to the external shell and verify setup with
 `tools/status.py`. The sandbox tool sets the same core variables automatically.
+
+## Bazel
+
+Install Bazelisk and its Bazel cache under the untracked `programs/` directory:
+
+```bash
+mkdir -p programs/bazel/bin programs/bazel/cache
+curl -fL https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64 \
+  -o programs/bazel/bin/bazel
+echo '5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992  programs/bazel/bin/bazel' \
+  | sha256sum --check
+chmod +x programs/bazel/bin/bazel
+USE_BAZEL_VERSION=9.1.0 BAZELISK_HOME="$PWD/programs/bazel/cache" \
+  programs/bazel/bin/bazel --version
+```
+
+After `direnv allow`, `bazel` uses version 9.1.0 and keeps downloaded releases
+under `programs/bazel/cache`.

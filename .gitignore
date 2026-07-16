@@ -4,6 +4,7 @@
 /.direnv/
 /.venv/
 /rocm
+/programs/
 /shared
 /sources/*
 !/sources/.gitkeep

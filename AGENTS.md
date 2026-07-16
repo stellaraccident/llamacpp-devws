@@ -18,6 +18,8 @@ This workspace is for shared development of llama.cpp with HRX support.
     or compiler changes.
 - Do not vendor build outputs, models, caches, profiles, ROCm installs, or
   temporary benchmark artifacts into the root repository.
+- Install workspace-local developer programs under the untracked `programs/`
+  directory. Keep each program's binaries and caches below its own directory.
 
 ## Environment
 
@@ -28,6 +30,22 @@ This workspace is for shared development of llama.cpp with HRX support.
   - `GGML_HRX_ROCM_PATH=$WORKSPACE/rocm`
   - build trees under `build/`
   - scratch data under `cache/` or `.tmp/`
+- Bazel is provided through Bazelisk under `programs/bazel/`. To install the
+  pinned Linux x86-64 binary used by this workspace:
+
+  ```bash
+  mkdir -p programs/bazel/bin programs/bazel/cache
+  curl -fL https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64 \
+    -o programs/bazel/bin/bazel
+  echo '5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992  programs/bazel/bin/bazel' \
+    | sha256sum --check
+  chmod +x programs/bazel/bin/bazel
+  USE_BAZEL_VERSION=9.1.0 BAZELISK_HOME="$PWD/programs/bazel/cache" \
+    programs/bazel/bin/bazel --version
+  ```
+
+  The workspace `.envrc` exports the Bazel version and cache location and adds
+  `programs/bazel/bin` to `PATH`.
 - The workspace uses a direnv-managed `.venv`. Agents may install Python
   tooling dependencies into this venv with `python3 -m pip install ...` when
   needed; do not vendor those packages into the repository.
