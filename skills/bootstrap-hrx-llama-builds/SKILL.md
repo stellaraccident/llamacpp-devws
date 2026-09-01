@@ -1,6 +1,6 @@
 ---
 name: bootstrap-hrx-llama-builds
-description: Bootstrap, verify, or reproduce CMake builds for HRX System, Loom, and the ROCm/HRX llama.cpp fork in /home/stella/llamacpp-devws. Use when configuring workspace-level build/ trees, building hrx-system without Bazel, checking Loom compiler binaries, or building llama.cpp CPU, Vulkan, and GGML_HRX baselines against the workspace rocm/ install.
+description: Bootstrap, verify, or reproduce CMake builds for HRX System, Loom, and the ROCm/HRX llama.cpp fork in /home/stella/llamacpp-devws. Use when configuring workspace-level build/ trees, building hrx-system without Bazel, checking Loom compiler binaries, or building llama.cpp CPU, Vulkan, GGML_HRX, and GGML_HRX2 baselines against the workspace rocm/ install.
 ---
 
 # Bootstrap HRX llama.cpp Builds
@@ -48,12 +48,13 @@ checkouts. Keep builds under the workspace `build/` directory and use
    ```
 
 6. Build llama.cpp baselines only after confirming the llama.cpp checkout is on
-   `hrx-integration`:
+   `hrx-v2`:
 
    ```bash
    python skills/bootstrap-hrx-llama-builds/scripts/bootstrap_builds.py --action llama-cpu
    python skills/bootstrap-hrx-llama-builds/scripts/bootstrap_builds.py --action llama-vulkan
    python skills/bootstrap-hrx-llama-builds/scripts/bootstrap_builds.py --action llama-hrx
+   python skills/bootstrap-hrx-llama-builds/scripts/bootstrap_builds.py --action llama-hrx2
    ```
 
 7. For a full run after prerequisites and branch state are settled:
@@ -67,21 +68,24 @@ checkouts. Keep builds under the workspace `build/` directory and use
 The script uses these workspace-local directories:
 
 - `build/hrx-system`: HRX System CMake build tree.
-- `build/hrx-install`: installed HRX public distribution for llama.cpp.
+- `build/hrx-install`: installed HRX and loomc public distribution, including
+  runtime/dev CMake packages and shared libraries required by llama.cpp HRX2.
 - `build/hrx-tests`: optional installed HRX test tree when
   `--install-hrx-tests` is passed.
 - `build/llama-cpu`: CPU baseline build.
 - `build/llama-vulkan`: Vulkan baseline build.
 - `build/llama-hrx`: llama.cpp `GGML_HRX=ON` build.
+- `build/llama-hrx2`: llama.cpp `GGML_HRX2=ON` build.
 
 ## Defaults
 
-- Required llama.cpp branch: `hrx-integration`.
+- Required llama.cpp branch: `hrx-v2`.
 - Required hrx-system branch: `main`.
 - ROCm path: `$WORKSPACE/rocm`.
 - Default GPU target: auto-detected from `rocminfo`.
 - CMake generator: `Ninja`.
 - Build type: `RelWithDebInfo`.
+- HRX2 uses the built `loom-link` tool plus the installed HRX/loomc packages;
 - ROCm health checks compare visible GPU execution against
   `ROCR_VISIBLE_DEVICES=` CPU-only execution.
 

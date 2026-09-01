@@ -15,7 +15,7 @@ from pathlib import Path
 
 DEFAULT_GFX_TARGETS = "auto"
 FALLBACK_GFX_TARGETS = "gfx1151"
-EXPECTED_LLAMA_BRANCH = "hrx-integration"
+EXPECTED_LLAMA_BRANCH = "hrx-v2"
 EXPECTED_HRX_BRANCH = "main"
 
 LOOM_BINARIES = [
@@ -32,7 +32,7 @@ LOOM_BINARIES = [
 LOOM_BUILD_TARGETS = [
     "loom/src/loom/tools/loom-compile/loom-compile",
     "loom/src/loom/tools/loom-link/loom-link",
-    "loom/src/loom/tools/loom-check/full/loom-check",
+    "loom/src/loom/tools/loom-check/loom-check",
     "loom/src/loom/tools/iree-test-loom/iree-test-loom",
     "loom/src/loom/tools/iree-benchmark-loom/iree-benchmark-loom",
     "loom/binding/c/example/source_info",
@@ -234,9 +234,8 @@ def require_prereqs(workspace: Path) -> None:
             errors.append(f"llama.cpp branch is {branch!r}; expected {EXPECTED_LLAMA_BRANCH!r}")
         if not (llama_src / "ggml" / "src" / "ggml-hrx" / "CMakeLists.txt").exists():
             errors.append("llama.cpp checkout does not contain ggml/src/ggml-hrx/CMakeLists.txt")
-        ggml_cmake = llama_src / "ggml" / "CMakeLists.txt"
-        if ggml_cmake.exists() and "GGML_HRX" not in ggml_cmake.read_text():
-            errors.append("llama.cpp ggml/CMakeLists.txt does not define GGML_HRX")
+        if not (llama_src / "ggml" / "src" / "ggml-hrx2" / "CMakeLists.txt").exists():
+            errors.append("llama.cpp checkout does not contain ggml/src/ggml-hrx2/CMakeLists.txt")
 
     if missing_host:
         print("Missing host tools/files:")
@@ -492,17 +491,18 @@ def verify_llama_build(build: Path, backend_hint: str) -> None:
 
 
 def llama_cpu_args() -> list[str]:
-    return ["-DGGML_HRX=OFF", "-DGGML_VULKAN=OFF", "-DGGML_HIP=OFF"]
+    return ["-DGGML_HRX=OFF", "-DGGML_HRX2=OFF", "-DGGML_VULKAN=OFF", "-DGGML_HIP=OFF"]
 
 
 def llama_vulkan_args() -> list[str]:
-    return ["-DGGML_HRX=OFF", "-DGGML_VULKAN=ON", "-DGGML_HIP=OFF"]
+    return ["-DGGML_HRX=OFF", "-DGGML_HRX2=OFF", "-DGGML_VULKAN=ON", "-DGGML_HIP=OFF"]
 
 
 def llama_hrx_args(workspace: Path, gfx_targets: list[str]) -> list[str]:
     rocm = workspace / "rocm"
     return [
         "-DGGML_HRX=ON",
+        "-DGGML_HRX2=OFF",
         "-DGGML_VULKAN=OFF",
         "-DGGML_HIP=OFF",
         f"-DGGML_HRX_ROCM_PATH={rocm}",
@@ -513,11 +513,24 @@ def llama_hrx_args(workspace: Path, gfx_targets: list[str]) -> list[str]:
     ]
 
 
+def llama_hrx2_args(workspace: Path, dry_run: bool) -> list[str]:
+    loom_link = workspace / "build" / "hrx-system" / "loom" / "src" / "loom" / "tools" / "loom-link" / "loom-link"
+    if not dry_run and not (loom_link.exists() and os.access(loom_link, os.X_OK)):
+        raise SystemExit(f"missing built loom-link; run --action loom before llama-hrx2: {loom_link}")
+    return [
+        "-DGGML_HRX=OFF",
+        "-DGGML_HRX2=ON",
+        "-DGGML_VULKAN=OFF",
+        "-DGGML_HIP=OFF",
+        f"-DGGML_HRX2_LOOM_LINK_EXECUTABLE={loom_link}",
+    ]
+
+
 def expand_actions(actions: list[str]) -> list[str]:
     expanded: list[str] = []
     for action in actions:
         if action == "all":
-            expanded.extend(["check", "hrx", "loom", "llama-cpu", "llama-vulkan", "llama-hrx"])
+            expanded.extend(["check", "hrx", "loom", "llama-cpu", "llama-vulkan", "llama-hrx", "llama-hrx2"])
         else:
             expanded.append(action)
     result: list[str] = []
@@ -533,7 +546,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--action",
         action="append",
-        choices=["check", "rocm-health", "hrx", "loom", "llama-cpu", "llama-vulkan", "llama-hrx", "all"],
+        choices=["check", "rocm-health", "hrx", "loom", "llama-cpu", "llama-vulkan", "llama-hrx", "llama-hrx2", "all"],
         default=None,
         help="Action to run. May be passed more than once. Defaults to check.",
     )
@@ -554,9 +567,10 @@ def main() -> int:
     workspace = args.workspace.resolve()
     actions = expand_actions(args.action or ["check"])
     env = base_env(workspace)
-    gfx_targets = resolve_gfx_targets(workspace, args.gfx_targets, env)
 
-    if not gfx_targets:
+    needs_gfx_targets = any(action in actions for action in ("hrx", "loom", "llama-hrx"))
+    gfx_targets = resolve_gfx_targets(workspace, args.gfx_targets, env) if needs_gfx_targets else []
+    if needs_gfx_targets and not gfx_targets:
         raise SystemExit("--gfx-targets must contain at least one target")
 
     if "check" in actions or len(actions) > 1 or actions[0] != "check":
@@ -595,6 +609,12 @@ def main() -> int:
         build_llama(workspace, build, env, args.jobs, args.dry_run, args.configure_only)
         if not args.configure_only and not args.dry_run:
             verify_llama_build(build, "GGML_HRX:BOOL=ON")
+
+    if "llama-hrx2" in actions:
+        build = configure_llama(workspace, "hrx2", llama_hrx2_args(workspace, args.dry_run), env, args.dry_run)
+        build_llama(workspace, build, env, args.jobs, args.dry_run, args.configure_only)
+        if not args.configure_only and not args.dry_run:
+            verify_llama_build(build, "GGML_HRX2:BOOL=ON")
 
     return 0
 
